@@ -3,12 +3,21 @@ from datetime import date, datetime, timezone
 import os
 from pathlib import Path
 from typing import Literal
-from fastapi import FastAPI, HTTPException
+import sys
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
-engine = create_engine(os.getenv('DATABASE_URL', f"sqlite:///{Path(__file__).resolve().parents[1] / 'project_board.db'}"), connect_args={'check_same_thread': False})
+data_dir = os.getenv('PROJECT_BOARD_DATA_DIR')
+database_path = Path(data_dir) / 'project_board.db' if data_dir else Path(__file__).resolve().parents[1] / 'project_board.db'
+database_path.parent.mkdir(parents=True, exist_ok=True)
+engine = create_engine(os.getenv('DATABASE_URL', f"sqlite:///{database_path.as_posix()}"), connect_args={'check_same_thread': False})
+
+bundle_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2]))
+web_dir = Path(os.getenv('PROJECT_BOARD_WEB_DIR', str(bundle_root / 'frontend' / 'dist')))
 class Base(DeclarativeBase): pass
 class Project(Base):
     __tablename__ = 'projects'
@@ -61,8 +70,18 @@ async def lifespan(app):
     Base.metadata.create_all(engine)
     yield
 app = FastAPI(title='Project Board API', lifespan=lifespan)
+@app.middleware('http')
+async def desktop_origin_check(request: Request, call_next):
+    if os.getenv('PROJECT_BOARD_DESKTOP') == '1' and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+        origin = request.headers.get('origin')
+        if origin and origin != str(request.base_url).rstrip('/'):
+            return JSONResponse({'detail': 'Origem não permitida'}, status_code=403)
+    return await call_next(request)
+
 @app.get('/')
-def home(): return {'message':'Project Board API'}
+def home():
+    index = web_dir / 'index.html'
+    return FileResponse(index) if index.is_file() else {'message':'Project Board API'}
 @app.get('/api/board')
 def board():
     with Session(engine) as s:
@@ -116,3 +135,6 @@ def create_entry(data:EntryInput):
         row=Entry(**data.model_dump(),task_title=task.title,created_at=datetime.now(timezone.utc).isoformat())
         s.add(row); s.commit(); s.refresh(row)
         return dump(row)
+
+if web_dir.is_dir():
+    app.mount('/assets', StaticFiles(directory=web_dir / 'assets'), name='assets')

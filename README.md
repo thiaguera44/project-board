@@ -32,13 +32,27 @@ Primeira versão funcional para execução local, com frontend conectado à API 
 
 ## Como executar no Windows (PowerShell)
 
-### Pré-requisitos
+### Aplicativo de desktop
+
+O aplicativo empacotado fica em `dist/ProjectBoard.exe`. Ele pode ser copiado sozinho para a Área de Trabalho ou outra pasta. Não é necessário iniciar Python, Node.js ou dois servidores manualmente. Os dados ficam em `%LOCALAPPDATA%\Project Board\project_board.db` e permanecem disponíveis após recompilar ou mover o executável.
+
+Para gerar ou atualizar o executável a partir do código, instale Python, Node.js e npm; crie o ambiente virtual conforme a seção abaixo; e execute na raiz do projeto:
+
+```powershell
+.\build-desktop.ps1
+```
+
+O script instala as dependências, compila o React e gera `dist/ProjectBoard.exe`. Esta versão foi preparada para Windows. Para levar os dados de uma execução anterior do projeto, feche o aplicativo e copie `backend/project_board.db` para `%LOCALAPPDATA%\Project Board\project_board.db` antes de abri-lo novamente.
+
+### Execução para desenvolvimento
+
+#### Pré-requisitos
 
 Tenha Python e Node.js com npm instalados. O ambiente usado na validação foi Python 3.12.0, Node.js 18.20.8 e npm 10.8.2; estas são as versões observadas, não uma recomendação de versões para produção.
 
 Abra o terminal na pasta raiz `project-board`. Os comandos abaixo usam diretamente o Python do ambiente virtual, sem precisar ativá-lo.
 
-### 1. Preparar o backend
+#### 1. Preparar o backend
 
 Se a pasta `backend/.venv` ainda não existir, crie o ambiente virtual:
 
@@ -63,7 +77,7 @@ Mantenha esse terminal aberto. Endereços:
 - [API](http://127.0.0.1:8000/)
 - [Documentação interativa](http://127.0.0.1:8000/docs)
 
-### 2. Preparar o frontend
+#### 2. Preparar o frontend
 
 Abra um segundo terminal na raiz do projeto:
 
@@ -79,7 +93,7 @@ Acesse o [Project Board](http://127.0.0.1:5173/). O Vite encaminha as chamadas `
 
 Para encerrar cada servidor, pressione `Ctrl+C` no respectivo terminal. Para voltar a usar o sistema, execute novamente os comandos de inicialização da API e do frontend; não é necessário reinstalar tudo.
 
-### 3. Verificar a compilação do frontend
+#### 3. Verificar a compilação do frontend
 
 Dentro da pasta `frontend`:
 
@@ -114,7 +128,7 @@ Uma instalação com banco novo começa vazia. Os projetos e registros simulados
 
 ## Dados e estrutura
 
-O banco `backend/project_board.db` é criado automaticamente na primeira inicialização da API. Ele preserva os dados entre reinicializações e está ignorado pelo Git. Para fazer uma cópia de segurança simples, encerre a API antes de copiar esse arquivo.
+Na execução para desenvolvimento, o banco `backend/project_board.db` é criado automaticamente na primeira inicialização da API. No aplicativo de desktop, o banco fica em `%LOCALAPPDATA%\Project Board\project_board.db`. Para fazer uma cópia de segurança simples, encerre a API ou o aplicativo antes de copiar esse arquivo.
 
 ```text
 project-board/

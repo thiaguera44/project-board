@@ -17,10 +17,12 @@ env/
 # Node
 # ==========================
 node_modules/
+.pnpm-store/
 
 # Build
 dist/
 build/
+*.spec
 
 # Logs
 *.log

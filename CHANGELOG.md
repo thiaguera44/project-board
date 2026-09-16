@@ -6,6 +6,9 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 
 ### Adicionado
 
+- Aplicativo de desktop para Windows, distribuído em um único `ProjectBoard.exe`.
+- Script `build-desktop.ps1` para compilar o frontend e gerar o executável.
+- Banco do aplicativo de desktop em `%LOCALAPPDATA%\Project Board`, preservado entre atualizações.
 - API FastAPI para projetos, tarefas, registro de horas e consulta do painel.
 - Persistência em SQLite com SQLAlchemy e criação automática das tabelas.
 - Interface React com TypeScript e Vite, inspirada na referência visual.
@@ -26,6 +29,7 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 
 ### Validação
 
+- Executável avulso iniciado a partir de outra pasta, com interface e API local respondendo.
 - Compilação do frontend e verificação do TypeScript concluídas com sucesso.
 - Verificações pontuais de conversão e limites de duração concluídas com sucesso.
 - Fluxos principais testados manualmente pelo autor; detalhes e limites no diário de aprendizado.
