@@ -6,6 +6,12 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 
 ### Adicionado
 
+- Botões no Kanban para registrar horas manualmente ou iniciar o cronômetro da tarefa.
+- Cronômetros simultâneos em tarefas diferentes, persistentes entre reinicializações, com controles individuais para registrar ou descartar.
+- Pausa e retomada por cronômetro no Kanban e na janela flutuante, preservando o tempo acumulado ao fechar o aplicativo.
+- Janela flutuante no aplicativo desktop para acompanhar os cronômetros enquanto o quadro está minimizado.
+- Perfil local com nome de exibição editável e pedido de nome no primeiro uso.
+- Nome do perfil como responsável padrão de novas tarefas, sem alterar tarefas existentes.
 - Aplicativo de desktop para Windows, distribuído em um único `ProjectBoard.exe`.
 - Script `build-desktop.ps1` para compilar o frontend e gerar o executável.
 - Banco do aplicativo de desktop em `%LOCALAPPDATA%\Project Board`, preservado entre atualizações.

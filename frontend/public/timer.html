@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cronômetros · Project Board</title>
+  <style>
+    :root{font-family:'Segoe UI',sans-serif;color:#29323e;background:#f7f9f8;font-size:13px}
+    *{box-sizing:border-box}body{margin:0;padding:16px}h1,p{margin:0}
+    header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+    h1{font-size:16px;font-weight:650}.count{font-size:11px;color:#63806b;background:#e6f0e9;padding:4px 8px;border-radius:20px}
+    #status{font-size:11px;color:#8a5c4c;min-height:16px;margin-bottom:5px}
+    #list{display:grid;gap:9px}.timer{background:white;border:1px solid #dfe7e2;border-radius:9px;padding:12px}
+    .name{font-weight:600;overflow-wrap:anywhere}.clock{font-size:25px;font-variant-numeric:tabular-nums;letter-spacing:1px;color:#426a51;margin:8px 0 10px}
+    .timer.paused{background:#f5f7f6}.timer.paused .clock{color:#718278}.state{font-size:11px;color:#718278;margin:-5px 0 9px}
+    .actions{display:flex;gap:7px;flex-wrap:wrap}button{font:inherit;border:1px solid #d8e3dc;background:#edf5ef;color:#426a51;border-radius:6px;padding:7px 10px;cursor:pointer}
+    button:last-child{background:white;color:#68756b}button:disabled{opacity:.5;cursor:wait}button:focus-visible{outline:3px solid #93b8dc;outline-offset:2px}
+    .empty{padding:24px 12px;text-align:center;color:#75877a;line-height:1.6;background:white;border:1px dashed #d8e3dc;border-radius:9px}
+  </style>
+</head>
+<body>
+  <header><h1>Cronômetros</h1><span class="count" id="count">0 cronômetros</span></header>
+  <p id="status" role="status"></p>
+  <main id="list"></main>
+  <script>
+    let board={tasks:[],active_timers:[]};
+    const list=document.getElementById('list');
+    const status=document.getElementById('status');
+    const count=document.getElementById('count');
+    const pad=value=>String(value).padStart(2,'0');
+    function elapsed(timer){
+      const live=timer.paused_at?0:Math.max(0,(Date.now()-new Date(timer.started_at).getTime())/1000);
+      const seconds=Math.max(0,Math.floor(timer.elapsed_seconds+live));
+      return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(pad).join(':');
+    }
+    function tick(){
+      for(const clock of document.querySelectorAll('[data-task-id]')){
+        const timer=board.active_timers.find(item=>item.task_id===Number(clock.dataset.taskId));
+        if(timer)clock.textContent=elapsed(timer);
+      }
+    }
+    function render(){
+      const timers=board.active_timers||[];
+      count.textContent=`${timers.length} ${timers.length===1?'cronômetro':'cronômetros'}`;
+      list.replaceChildren();
+      if(!timers.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='Nenhum cronômetro em andamento. Inicie um pelo Kanban.';list.append(empty);return;}
+      for(const timer of timers){
+        const task=board.tasks.find(item=>item.id===timer.task_id);
+        const card=document.createElement('article');card.className='timer'+(timer.paused_at?' paused':'');
+        const name=document.createElement('div');name.className='name';name.textContent=task?.title||'Tarefa';
+        const clock=document.createElement('div');clock.className='clock';clock.dataset.taskId=timer.task_id;
+        const state=document.createElement('div');state.className='state';state.textContent=timer.paused_at?'Pausado':'Em andamento';
+        const actions=document.createElement('div');actions.className='actions';
+        const toggle=document.createElement('button');toggle.textContent=timer.paused_at?'Retomar':'Pausar';toggle.onclick=()=>act(timer.task_id,timer.paused_at?'resume':'pause',card);
+        const stop=document.createElement('button');stop.textContent='Parar e registrar';stop.onclick=()=>act(timer.task_id,'stop',card);
+        const discard=document.createElement('button');discard.textContent='Descartar';discard.onclick=()=>act(timer.task_id,'discard',card);
+        actions.append(toggle,stop,discard);card.append(name,clock,state,actions);list.append(card);
+      }
+      tick();
+    }
+    async function load(){
+      try{const response=await fetch('/api/board');if(!response.ok)throw Error();board=await response.json();render();}
+      catch{status.textContent='Não foi possível atualizar os cronômetros.';}
+    }
+    async function act(taskId,kind,card){
+      if(kind==='discard'&&!confirm('Descartar o tempo deste cronômetro sem registrar horas?'))return;
+      for(const button of card.querySelectorAll('button'))button.disabled=true;
+      try{
+        const response=await fetch(`/api/timer/${taskId}${kind==='discard'?'':'/'+kind}`,{method:kind==='discard'?'DELETE':'POST'});
+        if(!response.ok)throw Error();
+        const result=await response.json();
+        status.textContent=kind==='stop'?`Tempo registrado: ${Math.round(result.hours*60)} min.`:kind==='discard'?'Cronômetro descartado.':kind==='pause'?'Cronômetro pausado.':'Cronômetro retomado.';
+        await load();
+      }catch{status.textContent='Não foi possível concluir a ação.';await load();}
+    }
+    load();setInterval(tick,1000);setInterval(load,5000);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
+  </script>
+</body>
+</html>

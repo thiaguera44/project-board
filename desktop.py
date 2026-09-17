@@ -10,6 +10,24 @@ import uvicorn
 import webview
 
 
+class DesktopApi:
+    def __init__(self, base_url: str) -> None:
+        self.base_url = base_url
+        self.timer_window = None
+
+    def show_timer(self) -> bool:
+        if self.timer_window is not None:
+            self.timer_window.restore()
+            return True
+        window = webview.create_window(
+            'Cronômetros · Project Board', f'{self.base_url}/timer',
+            width=390, height=340, min_size=(320, 180), on_top=True,
+        )
+        self.timer_window = window
+        window.events.closed += lambda *args: setattr(self, 'timer_window', None)
+        return True
+
+
 def main() -> None:
     app_data = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local'))
     data_dir = app_data / 'Project Board'
@@ -36,8 +54,9 @@ def main() -> None:
         raise RuntimeError('A API local demorou demais para iniciar.')
 
     port = server.servers[0].sockets[0].getsockname()[1]
+    base_url = f'http://127.0.0.1:{port}'
     try:
-        webview.create_window('Project Board', f'http://127.0.0.1:{port}/', width=1280, height=800, min_size=(900, 600))
+        webview.create_window('Project Board', f'{base_url}/', width=1280, height=800, min_size=(900, 600), js_api=DesktopApi(base_url))
         webview.start()
     finally:
         server.should_exit = True

@@ -19,9 +19,13 @@ Primeira versão funcional para execução local, com frontend conectado à API 
 
 - Cadastro, edição e exclusão de projetos e tarefas.
 - Tarefas com projeto, responsável, prioridade, prazo e tempo estimado.
+- Perfil com nome de exibição configurável; o nome aparece no espaço de trabalho e preenche o responsável de novas tarefas.
 - Kanban com os status A fazer, Fazendo, Em aguardo e Concluído.
 - Movimentação por arrastar e soltar ou edição do status no formulário.
 - Registro manual de tempo trabalhado com observação.
+- Registro manual de horas diretamente no cartão da tarefa no Kanban.
+- Cronômetros simultâneos em tarefas diferentes, com pausa, retomada, parada para registrar o tempo e opção de descartar cada um. O tempo pausado não entra no registro.
+- Janela flutuante dos cronômetros que permanece visível quando o quadro é minimizado no aplicativo desktop.
 - Preenchimento de estimativas e registros em campos separados de horas e minutos.
 - Exibição de durações como `30min`, `1h` e `1h 15min`.
 - Dashboard com indicadores, distribuição das tarefas por prioridade, horas por projeto e percentual concluído.
@@ -43,6 +47,8 @@ Para gerar ou atualizar o executável a partir do código, instale Python, Node.
 ```
 
 O script instala as dependências, compila o React e gera `dist/ProjectBoard.exe`. Esta versão foi preparada para Windows. Para levar os dados de uma execução anterior do projeto, feche o aplicativo e copie `backend/project_board.db` para `%LOCALAPPDATA%\Project Board\project_board.db` antes de abri-lo novamente.
+
+Na primeira abertura, informe seu nome de exibição. Depois, clique no cartão do perfil na barra lateral ou no avatar do topo para alterá-lo. O nome fica salvo no banco local; mudar o perfil não altera o responsável das tarefas existentes. O perfil identifica quem usa esta instalação, sem criar contas ou separar os dados por pessoa.
 
 ### Execução para desenvolvimento
 
@@ -117,6 +123,8 @@ Uma instalação com banco novo começa vazia. Os projetos e registros simulados
 
 - Minutos aceitos nos formulários: de 0 a 59, com horas e minutos inteiros.
 - Cada registro de trabalho na interface deve ter entre 1 minuto e 24 horas.
+- Os cronômetros em andamento continuam contando enquanto o aplicativo está fechado; os pausados permanecem congelados. Cada tarefa pode ter um cronômetro, e várias tarefas podem ser cronometradas ao mesmo tempo. Ao parar um deles, seu tempo é arredondado ao minuto mais próximo, com mínimo de 1 minuto, e aparece em **Horas registradas** com a observação `Cronômetro`.
+- No Kanban, clique em **Janela flutuante** para abrir o painel dos cronômetros acima das demais janelas. Ele permite pausar, retomar, parar ou descartar cada contagem sem restaurar o quadro.
 - Estimativas podem ser zero e têm limite de 100.000 horas.
 - A API e o banco ainda armazenam horas decimais; a conversão é feita pelo frontend. Por exemplo, 1h 30min corresponde a `1.5` na API. Valores existentes são exibidos com arredondamento ao minuto mais próximo.
 - Os indicadores do dashboard consideram as tarefas filtradas. Projetos ativos são os projetos com pelo menos uma tarefa não concluída no conjunto filtrado.
@@ -158,6 +166,8 @@ project-board/
 |---|---|---|
 | GET | `/` | Identificação da API |
 | GET | `/api/board` | Consultar projetos, tarefas, horas e histórico |
+| GET | `/api/profile` | Consultar o nome de exibição |
+| PUT | `/api/profile` | Atualizar o nome de exibição |
 | POST | `/api/projects` | Criar projeto |
 | PUT | `/api/projects/{project_id}` | Atualizar projeto |
 | DELETE | `/api/projects/{project_id}` | Excluir projeto sem tarefas |
@@ -165,6 +175,11 @@ project-board/
 | PUT | `/api/tasks/{task_id}` | Atualizar tarefa e registrar mudança de status |
 | DELETE | `/api/tasks/{task_id}` | Excluir tarefa |
 | POST | `/api/entries` | Registrar horas trabalhadas |
+| POST | `/api/timer/start` | Iniciar o cronômetro de uma tarefa |
+| POST | `/api/timer/{task_id}/pause` | Pausar o cronômetro da tarefa |
+| POST | `/api/timer/{task_id}/resume` | Retomar o cronômetro da tarefa |
+| POST | `/api/timer/{task_id}/stop` | Parar o cronômetro da tarefa e registrar as horas |
+| DELETE | `/api/timer/{task_id}` | Descartar o cronômetro da tarefa |
 
 Os formatos dos campos e exemplos de requisição estão disponíveis na documentação interativa da API em execução.
 
