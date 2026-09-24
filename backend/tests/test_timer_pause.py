@@ -22,9 +22,23 @@ class TimerPauseTest(unittest.TestCase):
                 'INSERT INTO active_timer (id, task_id, started_at) VALUES (1, 10, ?)',
                 (started.isoformat(),),
             )
+            connection.exec_driver_sql(
+                'CREATE TABLE workspace_settings (id INTEGER PRIMARY KEY, board_name VARCHAR NOT NULL, theme VARCHAR NOT NULL)'
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO workspace_settings (id, board_name, theme) VALUES (1, 'Quadro legado', 'azul')"
+            )
 
         async def run():
             async with main.lifespan(main.app):
+                self.assertEqual(main.get_settings(), {'board_name': 'Quadro legado', 'theme': 'azul', 'appearance': 'light'})
+                saved_settings = main.update_settings(
+                    main.SettingsInput(board_name='  Quadro da equipe  ', theme='roxo', appearance='dark')
+                )
+                self.assertEqual(saved_settings['board_name'], 'Quadro da equipe')
+                self.assertEqual(saved_settings['theme'], 'roxo')
+                self.assertEqual(saved_settings['appearance'], 'dark')
+                self.assertEqual(main.get_settings(), {'board_name': 'Quadro da equipe', 'theme': 'roxo', 'appearance': 'dark'})
                 with Session(engine) as session:
                     session.add_all([
                         main.Task(id=10, title='Antiga', project_id=1, status='todo', priority='medium',

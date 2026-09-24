@@ -54,6 +54,12 @@ class Profile(Base):
     __tablename__ = 'profile'
     id: Mapped[int] = mapped_column(primary_key=True)
     display_name: Mapped[str]
+class WorkspaceSettings(Base):
+    __tablename__ = 'workspace_settings'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    board_name: Mapped[str]
+    theme: Mapped[str]
+    appearance: Mapped[str] = mapped_column(default='light')
 class ActiveTimer(Base):
     __tablename__ = 'active_timer'
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -64,6 +70,10 @@ class ActiveTimer(Base):
 timer_task_index = Index('uq_active_timer_task_id', ActiveTimer.task_id, unique=True)
 class ProfileInput(BaseModel):
     display_name: str = Field(min_length=1, max_length=80, pattern=r'.*\S.*')
+class SettingsInput(BaseModel):
+    board_name: str = Field(min_length=1, max_length=40, pattern=r'.*\S.*')
+    theme: Literal['azul','verde','roxo','terracota','grafite'] = 'azul'
+    appearance: Literal['light','dark'] = 'light'
 class TimerInput(BaseModel):
     task_id: int
 class ProjectInput(BaseModel):
@@ -91,6 +101,9 @@ async def lifespan(app):
             connection.exec_driver_sql('ALTER TABLE active_timer ADD COLUMN elapsed_seconds FLOAT NOT NULL DEFAULT 0')
         if 'paused_at' not in columns:
             connection.exec_driver_sql('ALTER TABLE active_timer ADD COLUMN paused_at VARCHAR')
+        settings_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(workspace_settings)')}
+        if 'appearance' not in settings_columns:
+            connection.exec_driver_sql("ALTER TABLE workspace_settings ADD COLUMN appearance VARCHAR NOT NULL DEFAULT 'light'")
     timer_task_index.create(engine, checkfirst=True)
     yield
 app = FastAPI(title='Project Board API', lifespan=lifespan)
@@ -129,6 +142,24 @@ def update_profile(data: ProfileInput):
         row.display_name = data.display_name.strip()
         s.add(row); s.commit()
         return {'display_name': row.display_name}
+@app.get('/api/settings')
+def get_settings():
+    with Session(engine) as s:
+        row = s.get(WorkspaceSettings, 1)
+        return {
+            'board_name': row.board_name if row else 'project-board',
+            'theme': row.theme if row else 'azul',
+            'appearance': row.appearance if row else 'light',
+        }
+@app.put('/api/settings')
+def update_settings(data: SettingsInput):
+    with Session(engine) as s:
+        row = s.get(WorkspaceSettings, 1) or WorkspaceSettings(id=1)
+        row.board_name = data.board_name.strip()
+        row.theme = data.theme
+        row.appearance = data.appearance
+        s.add(row); s.commit()
+        return dump(row)
 def save_project(data, project_id=None):
     with Session(engine) as s:
         row = s.get(Project,project_id) if project_id else Project()
@@ -172,14 +203,29 @@ def delete_task(task_id:int):
         if timer: raise HTTPException(409,'Pare ou descarte o cronômetro antes de excluir esta tarefa.')
         s.delete(row); s.commit()
         return {'ok':True}
-@app.post('/api/entries',status_code=201)
-def create_entry(data:EntryInput):
+def save_entry(data:EntryInput, entry_id=None):
     with Session(engine) as s:
         task=s.get(Task,data.task_id)
         if not task: raise HTTPException(404,'Tarefa não encontrada')
-        row=Entry(**data.model_dump(),task_title=task.title,created_at=datetime.now(timezone.utc).isoformat())
+        row=s.get(Entry,entry_id) if entry_id else Entry(created_at=datetime.now(timezone.utc).isoformat())
+        if row is None: raise HTTPException(404,'Registro de horas não encontrado')
+        row.task_id=data.task_id
+        row.task_title=task.title
+        row.hours=data.hours
+        row.note=data.note
         s.add(row); s.commit(); s.refresh(row)
         return dump(row)
+@app.post('/api/entries',status_code=201)
+def create_entry(data:EntryInput): return save_entry(data)
+@app.put('/api/entries/{entry_id}')
+def update_entry(entry_id:int,data:EntryInput): return save_entry(data,entry_id)
+@app.delete('/api/entries/{entry_id}')
+def delete_entry(entry_id:int):
+    with Session(engine) as s:
+        row=s.get(Entry,entry_id)
+        if not row: raise HTTPException(404,'Registro de horas não encontrado')
+        s.delete(row); s.commit()
+        return {'ok':True}
 
 @app.post('/api/timer/start',status_code=201)
 def start_timer(data: TimerInput):

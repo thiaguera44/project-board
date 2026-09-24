@@ -27,6 +27,20 @@ class DesktopApi:
         window.events.closed += lambda *args: setattr(self, 'timer_window', None)
         return True
 
+    def save_csv(self, filename: str, content: str) -> bool:
+        safe_name = ''.join(character for character in filename if character not in '<>:"/\\|?*').strip() or 'relatorio.csv'
+        if not safe_name.lower().endswith('.csv'):
+            safe_name += '.csv'
+        selected = webview.windows[0].create_file_dialog(
+            webview.FileDialog.SAVE,
+            save_filename=safe_name,
+            file_types=('Arquivo CSV (*.csv)',),
+        )
+        if not selected:
+            return False
+        Path(selected[0]).write_text(content, encoding='utf-8-sig')
+        return True
+
 
 def main() -> None:
     app_data = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local'))

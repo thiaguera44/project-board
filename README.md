@@ -20,6 +20,7 @@ Primeira versão funcional para execução local, com frontend conectado à API 
 - Cadastro, edição e exclusão de projetos e tarefas.
 - Tarefas com projeto, responsável, prioridade, prazo e tempo estimado.
 - Perfil com nome de exibição configurável; o nome aparece no espaço de trabalho e preenche o responsável de novas tarefas.
+- Nome completo do quadro personalizável, cinco paletas de cores e modos claro ou escuro salvos localmente.
 - Kanban com os status A fazer, Fazendo, Em aguardo e Concluído.
 - Movimentação por arrastar e soltar ou edição do status no formulário.
 - Registro manual de tempo trabalhado com observação.
@@ -32,6 +33,8 @@ Primeira versão funcional para execução local, com frontend conectado à API 
 - Busca de tarefas por título, responsável ou nome do projeto; busca de projetos por nome.
 - Filtros de tarefas por projeto, prioridade e status.
 - Histórico de mudanças de status.
+- Relatórios de horas por período e projeto, com resumo e detalhamento.
+- Exportação dos lançamentos filtrados em CSV compatível com Excel.
 - Layout adaptável à largura da tela.
 
 ## Como executar no Windows (PowerShell)
@@ -82,6 +85,16 @@ Mantenha esse terminal aberto. Endereços:
 
 - [API](http://127.0.0.1:8000/)
 - [Documentação interativa](http://127.0.0.1:8000/docs)
+
+### Testes automatizados
+
+Na raiz do projeto, execute:
+
+```powershell
+.\test-project.ps1
+```
+
+O comando verifica o TypeScript, todos os minutos entre 0 e 24 horas e os fluxos do backend, incluindo projetos, tarefas, horas, histórico, perfil, personalização, exclusões e cronômetros. Os testes usam bancos temporários em memória e não alteram os dados do aplicativo.
 
 #### 2. Preparar o frontend
 
@@ -168,6 +181,8 @@ project-board/
 | GET | `/api/board` | Consultar projetos, tarefas, horas e histórico |
 | GET | `/api/profile` | Consultar o nome de exibição |
 | PUT | `/api/profile` | Atualizar o nome de exibição |
+| GET | `/api/settings` | Consultar nome, paleta e aparência do quadro |
+| PUT | `/api/settings` | Atualizar nome, paleta e aparência do quadro |
 | POST | `/api/projects` | Criar projeto |
 | PUT | `/api/projects/{project_id}` | Atualizar projeto |
 | DELETE | `/api/projects/{project_id}` | Excluir projeto sem tarefas |
@@ -175,6 +190,8 @@ project-board/
 | PUT | `/api/tasks/{task_id}` | Atualizar tarefa e registrar mudança de status |
 | DELETE | `/api/tasks/{task_id}` | Excluir tarefa |
 | POST | `/api/entries` | Registrar horas trabalhadas |
+| PUT | `/api/entries/{entry_id}` | Editar um registro de horas |
+| DELETE | `/api/entries/{entry_id}` | Excluir um registro de horas |
 | POST | `/api/timer/start` | Iniciar o cronômetro de uma tarefa |
 | POST | `/api/timer/{task_id}/pause` | Pausar o cronômetro da tarefa |
 | POST | `/api/timer/{task_id}/resume` | Retomar o cronômetro da tarefa |
@@ -185,12 +202,7 @@ Os formatos dos campos e exemplos de requisição estão disponíveis na documen
 
 ## Pendências
 
-- Testar exclusões e a proteção de projetos com tarefas.
-- Testar falhas de conexão e diferentes tamanhos de tela de forma sistemática.
-- Criar uma suíte de testes automatizados persistente.
-- Permitir edição e exclusão de registros de horas.
-- Implementar relatórios e exportação.
-- Separar o código em módulos e componentes menores conforme o projeto evoluir.
+- Ampliar a modularização conforme novas telas e integrações forem adicionadas.
 
 A versão atual não possui autenticação, gestão de equipes ou configuração de produção. Seu uso previsto é local e pessoal.
 

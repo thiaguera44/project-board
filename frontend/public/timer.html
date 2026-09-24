@@ -6,7 +6,7 @@
   <title>Cronômetros · Project Board</title>
   <style>
     :root{font-family:'Segoe UI',sans-serif;color:#29323e;background:#f7f9f8;font-size:13px}
-    *{box-sizing:border-box}body{margin:0;padding:16px}h1,p{margin:0}
+    *{box-sizing:border-box}html,body{min-height:100%}body{margin:0;padding:16px}h1,p{margin:0}
     header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
     h1{font-size:16px;font-weight:650}.count{font-size:11px;color:#63806b;background:#e6f0e9;padding:4px 8px;border-radius:20px}
     #status{font-size:11px;color:#8a5c4c;min-height:16px;margin-bottom:5px}
@@ -16,6 +16,7 @@
     .actions{display:flex;gap:7px;flex-wrap:wrap}button{font:inherit;border:1px solid #d8e3dc;background:#edf5ef;color:#426a51;border-radius:6px;padding:7px 10px;cursor:pointer}
     button:last-child{background:white;color:#68756b}button:disabled{opacity:.5;cursor:wait}button:focus-visible{outline:3px solid #93b8dc;outline-offset:2px}
     .empty{padding:24px 12px;text-align:center;color:#75877a;line-height:1.6;background:white;border:1px dashed #d8e3dc;border-radius:9px}
+    body.dark{color:#e7edf3;background:#10171f;color-scheme:dark}body.dark .count{color:#b8d5c1;background:#263c2d}body.dark .timer,body.dark .empty{background:#19232d;border-color:#34414d}body.dark .timer.paused{background:#222b31}body.dark .clock{color:#9fc5ac}body.dark button{background:#263c2d;border-color:#3b5945;color:#c5dfcd}body.dark button:last-child{background:#202b35;border-color:#3a4855;color:#c2ccd5}
   </style>
 </head>
 <body>
@@ -59,7 +60,7 @@
       tick();
     }
     async function load(){
-      try{const response=await fetch('/api/board');if(!response.ok)throw Error();board=await response.json();render();}
+      try{const [boardResponse,settingsResponse]=await Promise.all([fetch('/api/board'),fetch('/api/settings')]);if(!boardResponse.ok||!settingsResponse.ok)throw Error();board=await boardResponse.json();const settings=await settingsResponse.json();document.body.classList.toggle('dark',settings.appearance==='dark');document.title=`Cronômetros · ${settings.board_name}`;render();}
       catch{status.textContent='Não foi possível atualizar os cronômetros.';}
     }
     async function act(taskId,kind,card){

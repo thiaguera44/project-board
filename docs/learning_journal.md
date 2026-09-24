@@ -54,6 +54,10 @@ Os resultados abaixo distinguem verificações executadas durante o desenvolvime
 | Edição de projeto | Renomear projeto e verificar tarefa vinculada | Autor confirmou sucesso |
 | Compilação | TypeScript e build do Vite | Executados com sucesso após criação dos estilos e após alteração das durações |
 | Conversões de duração | Formatação, limites e conversão de ida e volta de cada minuto entre 0 e 24h | Verificação automatizada pontual executada com sucesso; ainda não salva como suíte no repositório |
+| Exclusões | Projeto com tarefas, tarefa com cronômetro, recursos inexistentes e preservação de horas/histórico | Cinco testes automatizados executados com sucesso |
+| Layout responsivo | 1440×900, 1024×768, 740×800 e 390×844 | Sem transbordamento horizontal; grades adaptadas para 4, 2 e 1 coluna no Kanban e 2 colunas nos indicadores móveis |
+| Falha de conexão | Interromper a API durante o salvamento e restaurá-la sem recarregar a tela | Mensagem em português exibida; nova tentativa concluída após a recuperação |
+| Suíte automatizada | Executar `test-project.ps1` | 9 testes do backend, 4 grupos do frontend e verificação do TypeScript concluídos |
 
 ### Dificuldades e soluções
 
@@ -65,11 +69,8 @@ Os resultados abaixo distinguem verificações executadas durante o desenvolvime
 
 ### Limites da validação e próximos passos
 
-- Ainda não foram testadas sistematicamente as exclusões, as falhas de conexão e as diferentes larguras de tela.
 - Confirmar explicitamente o resultado do teste de atraso e a ausência de registros após tentativas inválidas.
-- Transformar as verificações pontuais em testes automatizados reutilizáveis.
 - O histórico atual cobre somente mudanças de status.
-- Registros de horas ainda não possuem edição nem exclusão.
 - Os dados simulados permanecem no banco local e devem ser distinguidos de trabalho real.
 
 ### Referências do projeto
