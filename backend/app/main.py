@@ -25,6 +25,7 @@ class Project(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str]
     description: Mapped[str] = mapped_column(default='')
+    is_archived: Mapped[bool] = mapped_column(default=False)
 class Task(Base):
     __tablename__ = 'tasks'
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -35,6 +36,14 @@ class Task(Base):
     assignee: Mapped[str]
     due_date: Mapped[str]
     estimated_hours: Mapped[float]
+    is_archived: Mapped[bool] = mapped_column(default=False)
+class ChecklistItem(Base):
+    __tablename__ = 'checklist_items'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int]
+    title: Mapped[str]
+    is_done: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[str]
 class Entry(Base):
     __tablename__ = 'entries'
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -91,6 +100,61 @@ class EntryInput(BaseModel):
     task_id: int
     hours: float = Field(gt=0, le=24)
     note: str = Field(default='', max_length=1000)
+class ChecklistInput(BaseModel):
+    title: str = Field(min_length=1, max_length=200, pattern=r'.*\S.*')
+class ChecklistUpdate(ChecklistInput):
+    is_done: bool
+class BackupProject(BaseModel):
+    id: int = Field(gt=0)
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default='', max_length=2000)
+    is_archived: bool = False
+class BackupTask(BaseModel):
+    id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=200)
+    project_id: int = Field(gt=0)
+    status: Literal['todo','doing','waiting','done']
+    priority: Literal['critical','high','medium','low']
+    assignee: str = Field(min_length=1, max_length=80)
+    due_date: str = Field(default='', pattern=r'^$|^\d{4}-\d{2}-\d{2}$')
+    estimated_hours: float = Field(ge=0, le=100000)
+    is_archived: bool = False
+class BackupChecklistItem(BaseModel):
+    id: int = Field(gt=0)
+    task_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=200)
+    is_done: bool = False
+    created_at: str
+class BackupEntry(BaseModel):
+    id: int = Field(gt=0)
+    task_id: int = Field(gt=0)
+    task_title: str = Field(min_length=1, max_length=200)
+    hours: float = Field(gt=0, le=24)
+    note: str = Field(default='', max_length=1000)
+    created_at: str
+class BackupHistory(BaseModel):
+    id: int = Field(gt=0)
+    task_title: str = Field(min_length=1, max_length=200)
+    old_status: Literal['todo','doing','waiting','done']
+    new_status: Literal['todo','doing','waiting','done']
+    created_at: str
+class BackupTimer(BaseModel):
+    id: int = Field(gt=0)
+    task_id: int = Field(gt=0)
+    started_at: str
+    elapsed_seconds: float = Field(ge=0)
+    paused_at: str | None = None
+class BackupPayload(BaseModel):
+    format_version: Literal[1]
+    exported_at: str
+    profile: ProfileInput | None = None
+    settings: SettingsInput = SettingsInput(board_name='project-board')
+    projects: list[BackupProject] = []
+    tasks: list[BackupTask] = []
+    checklist_items: list[BackupChecklistItem] = []
+    entries: list[BackupEntry] = []
+    history: list[BackupHistory] = []
+    active_timers: list[BackupTimer] = []
 def dump(row): return {c.name: getattr(row,c.name) for c in row.__table__.columns}
 @asynccontextmanager
 async def lifespan(app):
@@ -104,6 +168,12 @@ async def lifespan(app):
         settings_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(workspace_settings)')}
         if 'appearance' not in settings_columns:
             connection.exec_driver_sql("ALTER TABLE workspace_settings ADD COLUMN appearance VARCHAR NOT NULL DEFAULT 'light'")
+        project_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(projects)')}
+        if 'is_archived' not in project_columns:
+            connection.exec_driver_sql('ALTER TABLE projects ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT 0')
+        task_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(tasks)')}
+        if 'is_archived' not in task_columns:
+            connection.exec_driver_sql('ALTER TABLE tasks ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT 0')
     timer_task_index.create(engine, checkfirst=True)
     yield
 app = FastAPI(title='Project Board API', lifespan=lifespan)
@@ -127,7 +197,18 @@ def timer_window():
 @app.get('/api/board')
 def board():
     with Session(engine) as s:
-        result = {key:[dump(r) for r in s.scalars(select(model).order_by(model.id))] for key,model in [('projects',Project),('tasks',Task),('entries',Entry),('history',History)]}
+        projects = list(s.scalars(select(Project).order_by(Project.id)))
+        tasks = list(s.scalars(select(Task).order_by(Task.id)))
+        active_project_ids = {row.id for row in projects if not row.is_archived}
+        result = {
+            'projects': [dump(row) for row in projects if not row.is_archived],
+            'tasks': [dump(row) for row in tasks if not row.is_archived and row.project_id in active_project_ids],
+            'archived_projects': [dump(row) for row in projects if row.is_archived],
+            'archived_tasks': [dump(row) for row in tasks if row.is_archived and row.project_id in active_project_ids],
+            'checklist_items': [dump(row) for row in s.scalars(select(ChecklistItem).order_by(ChecklistItem.id))],
+            'entries': [dump(row) for row in s.scalars(select(Entry).order_by(Entry.id))],
+            'history': [dump(row) for row in s.scalars(select(History).order_by(History.id))],
+        }
         result['active_timers'] = [dump(timer) for timer in s.scalars(select(ActiveTimer).order_by(ActiveTimer.id))]
         return result
 @app.get('/api/profile')
@@ -160,6 +241,70 @@ def update_settings(data: SettingsInput):
         row.appearance = data.appearance
         s.add(row); s.commit()
         return dump(row)
+@app.get('/api/backup')
+def export_backup():
+    with Session(engine) as s:
+        profile = s.get(Profile, 1)
+        settings = s.get(WorkspaceSettings, 1)
+        return {
+            'format_version': 1,
+            'exported_at': datetime.now(timezone.utc).isoformat(),
+            'profile': {'display_name': profile.display_name} if profile else None,
+            'settings': {
+                'board_name': settings.board_name if settings else 'project-board',
+                'theme': settings.theme if settings else 'azul',
+                'appearance': settings.appearance if settings else 'light',
+            },
+            'projects': [dump(row) for row in s.scalars(select(Project).order_by(Project.id))],
+            'tasks': [dump(row) for row in s.scalars(select(Task).order_by(Task.id))],
+            'checklist_items': [dump(row) for row in s.scalars(select(ChecklistItem).order_by(ChecklistItem.id))],
+            'entries': [dump(row) for row in s.scalars(select(Entry).order_by(Entry.id))],
+            'history': [dump(row) for row in s.scalars(select(History).order_by(History.id))],
+            'active_timers': [dump(row) for row in s.scalars(select(ActiveTimer).order_by(ActiveTimer.id))],
+        }
+@app.post('/api/backup/restore')
+def restore_backup(data: BackupPayload):
+    def unique_ids(rows, label):
+        ids = [row.id for row in rows]
+        if len(ids) != len(set(ids)):
+            raise HTTPException(422, f'O backup contém identificadores duplicados em {label}.')
+    unique_ids(data.projects, 'projetos'); unique_ids(data.tasks, 'tarefas')
+    unique_ids(data.checklist_items, 'checklist')
+    unique_ids(data.entries, 'horas'); unique_ids(data.history, 'histórico'); unique_ids(data.active_timers, 'cronômetros')
+    project_ids = {row.id for row in data.projects}
+    task_ids = {row.id for row in data.tasks}
+    if any(row.project_id not in project_ids for row in data.tasks):
+        raise HTTPException(422, 'O backup contém tarefas ligadas a projetos inexistentes.')
+    if any(row.task_id not in task_ids for row in data.checklist_items):
+        raise HTTPException(422, 'O backup contém itens de checklist ligados a tarefas inexistentes.')
+    if any(row.task_id not in task_ids for row in data.active_timers):
+        raise HTTPException(422, 'O backup contém cronômetros ligados a tarefas inexistentes.')
+    archived_project_ids = {row.id for row in data.projects if row.is_archived}
+    archived_task_ids = {row.id for row in data.tasks if row.is_archived or row.project_id in archived_project_ids}
+    if any(row.task_id in archived_task_ids for row in data.active_timers):
+        raise HTTPException(422, 'O backup contém cronômetros em tarefas arquivadas.')
+    if len({row.task_id for row in data.active_timers}) != len(data.active_timers):
+        raise HTTPException(422, 'O backup contém mais de um cronômetro para a mesma tarefa.')
+    with Session(engine) as s:
+        try:
+            for model in (ActiveTimer, ChecklistItem, Entry, History, Task, Project, Profile, WorkspaceSettings):
+                for row in s.scalars(select(model)):
+                    s.delete(row)
+            s.flush()
+            s.add_all(Project(**row.model_dump()) for row in data.projects)
+            s.add_all(Task(**row.model_dump()) for row in data.tasks)
+            s.add_all(ChecklistItem(**row.model_dump()) for row in data.checklist_items)
+            s.add_all(Entry(**row.model_dump()) for row in data.entries)
+            s.add_all(History(**row.model_dump()) for row in data.history)
+            s.add_all(ActiveTimer(**row.model_dump()) for row in data.active_timers)
+            if data.profile:
+                s.add(Profile(id=1, display_name=data.profile.display_name.strip()))
+            s.add(WorkspaceSettings(id=1, **data.settings.model_dump()))
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise
+    return {'ok': True, 'projects': len(data.projects), 'tasks': len(data.tasks), 'entries': len(data.entries), 'checklist_items': len(data.checklist_items)}
 def save_project(data, project_id=None):
     with Session(engine) as s:
         row = s.get(Project,project_id) if project_id else Project()
@@ -179,9 +324,27 @@ def delete_project(project_id:int):
         if s.scalar(select(Task).where(Task.project_id==project_id)): raise HTTPException(409,'Remova ou transfira as tarefas deste projeto primeiro.')
         s.delete(row); s.commit()
         return {'ok':True}
+@app.post('/api/projects/{project_id}/archive')
+def archive_project(project_id:int):
+    with Session(engine) as s:
+        row=s.get(Project,project_id)
+        if not row: raise HTTPException(404,'Projeto não encontrado')
+        task_ids=list(s.scalars(select(Task.id).where(Task.project_id==project_id)))
+        if task_ids and s.scalar(select(ActiveTimer).where(ActiveTimer.task_id.in_(task_ids))):
+            raise HTTPException(409,'Pare ou descarte os cronômetros deste projeto antes de arquivá-lo.')
+        row.is_archived=True; s.commit()
+        return {'ok':True}
+@app.post('/api/projects/{project_id}/restore')
+def restore_project(project_id:int):
+    with Session(engine) as s:
+        row=s.get(Project,project_id)
+        if not row: raise HTTPException(404,'Projeto não encontrado')
+        row.is_archived=False; s.commit()
+        return {'ok':True}
 def save_task(data,task_id=None):
     with Session(engine) as s:
-        if not s.get(Project,data.project_id): raise HTTPException(404,'Projeto não encontrado')
+        project=s.get(Project,data.project_id)
+        if not project or project.is_archived: raise HTTPException(404,'Projeto não encontrado')
         row=s.get(Task,task_id) if task_id else Task()
         if row is None: raise HTTPException(404,'Tarefa não encontrada')
         if task_id and row.status!=data.status:
@@ -201,6 +364,51 @@ def delete_task(task_id:int):
         if not row: raise HTTPException(404,'Tarefa não encontrada')
         timer=s.scalar(select(ActiveTimer).where(ActiveTimer.task_id==task_id))
         if timer: raise HTTPException(409,'Pare ou descarte o cronômetro antes de excluir esta tarefa.')
+        for item in s.scalars(select(ChecklistItem).where(ChecklistItem.task_id==task_id)):
+            s.delete(item)
+        s.delete(row); s.commit()
+        return {'ok':True}
+@app.post('/api/tasks/{task_id}/archive')
+def archive_task(task_id:int):
+    with Session(engine) as s:
+        row=s.get(Task,task_id)
+        if not row: raise HTTPException(404,'Tarefa não encontrada')
+        if s.scalar(select(ActiveTimer).where(ActiveTimer.task_id==task_id)):
+            raise HTTPException(409,'Pare ou descarte o cronômetro antes de arquivar esta tarefa.')
+        row.is_archived=True; s.commit()
+        return {'ok':True}
+@app.post('/api/tasks/{task_id}/restore')
+def restore_task(task_id:int):
+    with Session(engine) as s:
+        row=s.get(Task,task_id)
+        if not row: raise HTTPException(404,'Tarefa não encontrada')
+        project=s.get(Project,row.project_id)
+        if not project or project.is_archived:
+            raise HTTPException(409,'Restaure o projeto desta tarefa primeiro.')
+        row.is_archived=False; s.commit()
+        return {'ok':True}
+@app.post('/api/tasks/{task_id}/checklist',status_code=201)
+def create_checklist_item(task_id:int,data:ChecklistInput):
+    with Session(engine) as s:
+        task=s.get(Task,task_id)
+        project=s.get(Project,task.project_id) if task else None
+        if not task or task.is_archived or not project or project.is_archived: raise HTTPException(404,'Tarefa não encontrada')
+        row=ChecklistItem(task_id=task_id,title=data.title.strip(),is_done=False,created_at=datetime.now(timezone.utc).isoformat())
+        s.add(row); s.commit(); s.refresh(row)
+        return dump(row)
+@app.put('/api/checklist/{item_id}')
+def update_checklist_item(item_id:int,data:ChecklistUpdate):
+    with Session(engine) as s:
+        row=s.get(ChecklistItem,item_id)
+        if not row: raise HTTPException(404,'Item do checklist não encontrado')
+        row.title=data.title.strip(); row.is_done=data.is_done
+        s.commit(); s.refresh(row)
+        return dump(row)
+@app.delete('/api/checklist/{item_id}')
+def delete_checklist_item(item_id:int):
+    with Session(engine) as s:
+        row=s.get(ChecklistItem,item_id)
+        if not row: raise HTTPException(404,'Item do checklist não encontrado')
         s.delete(row); s.commit()
         return {'ok':True}
 def save_entry(data:EntryInput, entry_id=None):
@@ -230,7 +438,9 @@ def delete_entry(entry_id:int):
 @app.post('/api/timer/start',status_code=201)
 def start_timer(data: TimerInput):
     with Session(engine) as s:
-        if not s.get(Task,data.task_id): raise HTTPException(404,'Tarefa não encontrada')
+        task=s.get(Task,data.task_id)
+        project=s.get(Project,task.project_id) if task else None
+        if not task or task.is_archived or not project or project.is_archived: raise HTTPException(404,'Tarefa não encontrada')
         if s.scalar(select(ActiveTimer).where(ActiveTimer.task_id==data.task_id)):
             raise HTTPException(409,'Esta tarefa já tem um cronômetro em andamento.')
         timer=ActiveTimer(task_id=data.task_id,started_at=datetime.now(timezone.utc).isoformat(),elapsed_seconds=0,paused_at=None)

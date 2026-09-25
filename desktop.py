@@ -41,6 +41,33 @@ class DesktopApi:
         Path(selected[0]).write_text(content, encoding='utf-8-sig')
         return True
 
+    def save_backup(self, filename: str, content: str) -> bool:
+        safe_name = ''.join(character for character in filename if character not in '<>:"/\\|?*').strip() or 'project-board-backup.json'
+        if not safe_name.lower().endswith('.json'):
+            safe_name += '.json'
+        selected = webview.windows[0].create_file_dialog(
+            webview.FileDialog.SAVE,
+            save_filename=safe_name,
+            file_types=('Backup do Project Board (*.json)',),
+        )
+        if not selected:
+            return False
+        Path(selected[0]).write_text(content, encoding='utf-8')
+        return True
+
+    def load_backup(self) -> str | None:
+        selected = webview.windows[0].create_file_dialog(
+            webview.FileDialog.OPEN,
+            allow_multiple=False,
+            file_types=('Backup do Project Board (*.json)',),
+        )
+        if not selected:
+            return None
+        path = Path(selected[0])
+        if path.stat().st_size > 20 * 1024 * 1024:
+            raise ValueError('O arquivo de backup ultrapassa o limite de 20 MB.')
+        return path.read_text(encoding='utf-8-sig')
+
 
 def main() -> None:
     app_data = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local'))

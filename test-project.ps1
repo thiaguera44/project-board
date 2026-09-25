@@ -24,7 +24,7 @@ Push-Location (Join-Path $root 'frontend')
 try {
     & $node 'node_modules\typescript\bin\tsc' --noEmit
     if ($LASTEXITCODE -ne 0) { throw 'A verificação do TypeScript falhou.' }
-    & $node 'node_modules\typescript\bin\tsc' 'src\duration.ts' 'src\report.ts' --target ES2022 --module ES2022 --skipLibCheck --outDir .test-build
+    & $node 'node_modules\typescript\bin\tsc' 'src\duration.ts' 'src\report.ts' 'src\deadlines.ts' --target ES2022 --module ES2022 --skipLibCheck --outDir .test-build
     if ($LASTEXITCODE -ne 0) { throw 'A preparação dos testes de duração falhou.' }
     & $node 'tests\duration.test.mjs'
     if ($LASTEXITCODE -ne 0) { throw 'Os testes do frontend falharam.' }

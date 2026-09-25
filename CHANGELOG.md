@@ -6,6 +6,10 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 
 ### Adicionado
 
+- Backup completo em JSON e restauração validada de projetos, tarefas, horas, histórico, cronômetros, perfil e personalização.
+- Arquivamento e restauração de projetos e tarefas, preservando horas e histórico em uma área dedicada.
+- Checklists nas tarefas, com criação, conclusão, reabertura, exclusão e progresso visível no Kanban.
+- Avisos de prazo no cabeçalho e no Dashboard para tarefas atrasadas, com vencimento hoje ou nos próximos três dias.
 - Personalização do nome do quadro e da paleta de cores, persistida entre as aberturas do aplicativo.
 - Modos claro e escuro persistentes, aplicados também à janela flutuante dos cronômetros.
 - Edição e exclusão de registros de horas pela tela de horas registradas.
@@ -44,7 +48,7 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 ### Validação
 
 - Layout validado em quatro larguras, sem transbordamento horizontal, e recuperação de conexão validada após interrupção da API.
-- Suíte completa validada com 9 testes do backend e 4 grupos de testes do frontend.
+- Suíte completa validada com 16 testes do backend e 5 grupos de testes do frontend.
 - Edição de registros validada com preservação da data original; exclusão validada pela suíte automatizada.
 - Exclusões e proteções validadas por testes automatizados, incluindo preservação dos registros de horas e do histórico.
 - Executável avulso iniciado a partir de outra pasta, com interface e API local respondendo.

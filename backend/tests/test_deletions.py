@@ -65,6 +65,54 @@ class DeletionFlowsTest(unittest.TestCase):
         main.discard_timer(task['id'])
         self.assertEqual(main.delete_task(task['id']), {'ok': True})
 
+    def test_archive_and_restore_project_preserves_its_tasks(self):
+        project, task = self.create_project_and_task()
+
+        self.assertEqual(main.archive_project(project['id']), {'ok': True})
+        board = main.board()
+        self.assertEqual(board['projects'], [])
+        self.assertEqual(board['tasks'], [])
+        self.assertEqual(board['archived_projects'][0]['id'], project['id'])
+
+        self.assertEqual(main.restore_project(project['id']), {'ok': True})
+        board = main.board()
+        self.assertEqual(board['projects'][0]['id'], project['id'])
+        self.assertEqual(board['tasks'][0]['id'], task['id'])
+
+    def test_archive_and_restore_task_preserves_project(self):
+        project, task = self.create_project_and_task()
+
+        self.assertEqual(main.archive_task(task['id']), {'ok': True})
+        board = main.board()
+        self.assertEqual(board['projects'][0]['id'], project['id'])
+        self.assertEqual(board['tasks'], [])
+        self.assertEqual(board['archived_tasks'][0]['id'], task['id'])
+
+        self.assertEqual(main.restore_task(task['id']), {'ok': True})
+        self.assertEqual(main.board()['tasks'][0]['id'], task['id'])
+
+    def test_checklist_can_be_completed_and_is_removed_with_task(self):
+        _, task = self.create_project_and_task()
+        item = main.create_checklist_item(task['id'], main.ChecklistInput(title='  Validar entrega  '))
+        self.assertEqual(item['title'], 'Validar entrega')
+
+        item = main.update_checklist_item(
+            item['id'], main.ChecklistUpdate(title=item['title'], is_done=True)
+        )
+        self.assertTrue(item['is_done'])
+        self.assertEqual(main.board()['checklist_items'][0]['task_id'], task['id'])
+
+        main.delete_task(task['id'])
+        self.assertEqual(main.board()['checklist_items'], [])
+
+    def test_active_timer_prevents_archiving_task_or_project(self):
+        project, task = self.create_project_and_task()
+        main.start_timer(main.TimerInput(task_id=task['id']))
+
+        self.assert_http_error(409, lambda: main.archive_task(task['id']))
+        self.assert_http_error(409, lambda: main.archive_project(project['id']))
+        self.assertEqual(main.board()['tasks'][0]['id'], task['id'])
+
     def test_deleting_task_preserves_entries_and_history(self):
         project, task = self.create_project_and_task()
         main.create_entry(main.EntryInput(task_id=task['id'], hours=1.5, note='Trabalho feito'))

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { durationFromParts, formatDuration, splitDuration } from '../.test-build/duration.js';
 import { filterReportEntries, reportCsv } from '../.test-build/report.js';
+import { getDeadlineAlerts } from '../.test-build/deadlines.js';
 
 test('converte todos os minutos de 0 a 24 horas sem perder precisão', () => {
   for (let totalMinutes = 0; totalMinutes <= 24 * 60; totalMinutes += 1) {
@@ -44,4 +45,19 @@ test('filtra relatórios e gera CSV compatível com Excel', () => {
   assert.match(csv,/Projeto A/);
   assert.match(csv,/"1,50"/);
   assert.match(csv,/"Texto com ""aspas"""/);
+});
+
+test('classifica apenas prazos vencidos ou próximos', () => {
+  const task=(id,title,due_date,status='todo')=>({id,title,due_date,status,project_id:1,priority:'medium',assignee:'Ana',estimated_hours:0,is_archived:false});
+  const alerts=getDeadlineAlerts([
+    task(1,'Atrasada','2026-09-23'),
+    task(2,'Hoje','2026-09-25'),
+    task(3,'Próxima','2026-09-28'),
+    task(4,'Distante','2026-09-29'),
+    task(5,'Concluída','2026-09-20','done'),
+  ],'2026-09-25');
+
+  assert.deepEqual(alerts.map(alert=>[alert.task.id,alert.days,alert.kind]),[
+    [1,-2,'overdue'],[2,0,'today'],[3,3,'soon'],
+  ]);
 });

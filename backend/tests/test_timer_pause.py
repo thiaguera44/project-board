@@ -16,6 +16,12 @@ class TimerPauseTest(unittest.TestCase):
         started = datetime.now(timezone.utc) - timedelta(seconds=120)
         with engine.begin() as connection:
             connection.exec_driver_sql(
+                'CREATE TABLE projects (id INTEGER PRIMARY KEY, name VARCHAR NOT NULL, description VARCHAR NOT NULL)'
+            )
+            connection.exec_driver_sql(
+                'CREATE TABLE tasks (id INTEGER PRIMARY KEY, title VARCHAR NOT NULL, project_id INTEGER NOT NULL, status VARCHAR NOT NULL, priority VARCHAR NOT NULL, assignee VARCHAR NOT NULL, due_date VARCHAR NOT NULL, estimated_hours FLOAT NOT NULL)'
+            )
+            connection.exec_driver_sql(
                 'CREATE TABLE active_timer (id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL, started_at VARCHAR NOT NULL)'
             )
             connection.exec_driver_sql(
@@ -31,6 +37,9 @@ class TimerPauseTest(unittest.TestCase):
 
         async def run():
             async with main.lifespan(main.app):
+                with engine.begin() as connection:
+                    self.assertIn('is_archived', {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(projects)')})
+                    self.assertIn('is_archived', {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(tasks)')})
                 self.assertEqual(main.get_settings(), {'board_name': 'Quadro legado', 'theme': 'azul', 'appearance': 'light'})
                 saved_settings = main.update_settings(
                     main.SettingsInput(board_name='  Quadro da equipe  ', theme='roxo', appearance='dark')
@@ -41,6 +50,7 @@ class TimerPauseTest(unittest.TestCase):
                 self.assertEqual(main.get_settings(), {'board_name': 'Quadro da equipe', 'theme': 'roxo', 'appearance': 'dark'})
                 with Session(engine) as session:
                     session.add_all([
+                        main.Project(id=1, name='Projeto', description=''),
                         main.Task(id=10, title='Antiga', project_id=1, status='todo', priority='medium',
                                   assignee='Pessoa', due_date='', estimated_hours=0),
                         main.Task(id=11, title='Paralela', project_id=1, status='todo', priority='medium',

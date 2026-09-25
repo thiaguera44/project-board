@@ -21,6 +21,10 @@ Primeira versão funcional para execução local, com frontend conectado à API 
 - Tarefas com projeto, responsável, prioridade, prazo e tempo estimado.
 - Perfil com nome de exibição configurável; o nome aparece no espaço de trabalho e preenche o responsável de novas tarefas.
 - Nome completo do quadro personalizável, cinco paletas de cores e modos claro ou escuro salvos localmente.
+- Backup completo em JSON e restauração com validação antes de substituir os dados atuais.
+- Arquivamento de projetos e tarefas com área dedicada para restauração.
+- Checklists dentro das tarefas, com acompanhamento do progresso nos cartões do Kanban.
+- Avisos para tarefas atrasadas, com vencimento no dia ou nos próximos três dias, com acesso direto pelo cabeçalho.
 - Kanban com os status A fazer, Fazendo, Em aguardo e Concluído.
 - Movimentação por arrastar e soltar ou edição do status no formulário.
 - Registro manual de tempo trabalhado com observação.
@@ -183,12 +187,21 @@ project-board/
 | PUT | `/api/profile` | Atualizar o nome de exibição |
 | GET | `/api/settings` | Consultar nome, paleta e aparência do quadro |
 | PUT | `/api/settings` | Atualizar nome, paleta e aparência do quadro |
+| GET | `/api/backup` | Exportar uma cópia completa dos dados |
+| POST | `/api/backup/restore` | Validar e restaurar uma cópia completa dos dados |
+| POST | `/api/projects/{project_id}/archive` | Arquivar um projeto e ocultar suas tarefas |
+| POST | `/api/projects/{project_id}/restore` | Restaurar um projeto arquivado |
 | POST | `/api/projects` | Criar projeto |
 | PUT | `/api/projects/{project_id}` | Atualizar projeto |
 | DELETE | `/api/projects/{project_id}` | Excluir projeto sem tarefas |
 | POST | `/api/tasks` | Criar tarefa |
 | PUT | `/api/tasks/{task_id}` | Atualizar tarefa e registrar mudança de status |
 | DELETE | `/api/tasks/{task_id}` | Excluir tarefa |
+| POST | `/api/tasks/{task_id}/archive` | Arquivar uma tarefa |
+| POST | `/api/tasks/{task_id}/restore` | Restaurar uma tarefa arquivada |
+| POST | `/api/tasks/{task_id}/checklist` | Adicionar um item ao checklist da tarefa |
+| PUT | `/api/checklist/{item_id}` | Atualizar ou concluir um item do checklist |
+| DELETE | `/api/checklist/{item_id}` | Excluir um item do checklist |
 | POST | `/api/entries` | Registrar horas trabalhadas |
 | PUT | `/api/entries/{entry_id}` | Editar um registro de horas |
 | DELETE | `/api/entries/{entry_id}` | Excluir um registro de horas |

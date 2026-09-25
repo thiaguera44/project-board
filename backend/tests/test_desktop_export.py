@@ -35,6 +35,20 @@ class DesktopExportTest(unittest.TestCase):
         finally:
             target.unlink(missing_ok=True)
 
+    def test_backup_is_saved_and_loaded_as_utf8_json(self):
+        target = Path(__file__).with_name('.backup-test.json')
+        try:
+            window = FakeWindow(target)
+            api = desktop.DesktopApi('http://localhost')
+            with patch.object(desktop.webview, 'windows', [window]):
+                self.assertTrue(api.save_backup('cópia?.json', '{"nome":"Revisão"}'))
+                self.assertEqual(api.load_backup(), '{"nome":"Revisão"}')
+
+            self.assertEqual(window.arguments[0][0], desktop.webview.FileDialog.OPEN)
+            self.assertEqual(target.read_text(encoding='utf-8'), '{"nome":"Revisão"}')
+        finally:
+            target.unlink(missing_ok=True)
+
 
 if __name__ == '__main__':
     unittest.main()
