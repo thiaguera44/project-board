@@ -4,16 +4,14 @@ import base64
 import binascii
 import os
 from pathlib import Path
-from typing import Literal
 import sys
 from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
-from sqlalchemy import Index, create_engine, select
+from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
+from sqlalchemy.orm import Session
 from app.task_rules import dependency_change_creates_cycle, graph_has_cycle, next_recurrence_date
 
 data_dir = os.getenv('PROJECT_BOARD_DATA_DIR')
@@ -25,224 +23,15 @@ engine = create_engine(os.getenv('DATABASE_URL', f"sqlite:///{database_path.as_p
 
 bundle_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2]))
 web_dir = Path(os.getenv('PROJECT_BOARD_WEB_DIR', str(bundle_root / 'frontend' / 'dist')))
-class Base(DeclarativeBase): pass
-class Project(Base):
-    __tablename__ = 'projects'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str]
-    description: Mapped[str] = mapped_column(default='')
-    is_archived: Mapped[bool] = mapped_column(default=False)
-class Task(Base):
-    __tablename__ = 'tasks'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str]
-    project_id: Mapped[int]
-    status: Mapped[str]
-    priority: Mapped[str]
-    assignee: Mapped[str]
-    due_date: Mapped[str]
-    estimated_hours: Mapped[float]
-    is_archived: Mapped[bool] = mapped_column(default=False)
-    recurrence: Mapped[str] = mapped_column(default='none')
-    recurrence_end: Mapped[str] = mapped_column(default='')
-class ChecklistItem(Base):
-    __tablename__ = 'checklist_items'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    task_id: Mapped[int]
-    title: Mapped[str]
-    is_done: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[str]
-class TaskComment(Base):
-    __tablename__ = 'task_comments'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    task_id: Mapped[int]
-    author: Mapped[str]
-    content: Mapped[str]
-    created_at: Mapped[str]
-class Label(Base):
-    __tablename__ = 'labels'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str]
-    color: Mapped[str]
-class TaskLabel(Base):
-    __tablename__ = 'task_labels'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    task_id: Mapped[int]
-    label_id: Mapped[int]
-task_label_index = Index('uq_task_label', TaskLabel.task_id, TaskLabel.label_id, unique=True)
-class TaskDependency(Base):
-    __tablename__ = 'task_dependencies'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    task_id: Mapped[int]
-    depends_on_id: Mapped[int]
-task_dependency_index = Index('uq_task_dependency', TaskDependency.task_id, TaskDependency.depends_on_id, unique=True)
-class Attachment(Base):
-    __tablename__ = 'attachments'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    task_id: Mapped[int]
-    original_name: Mapped[str]
-    stored_name: Mapped[str]
-    size: Mapped[int]
-    created_at: Mapped[str]
-class Entry(Base):
-    __tablename__ = 'entries'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    task_id: Mapped[int]
-    task_title: Mapped[str]
-    hours: Mapped[float]
-    note: Mapped[str]
-    created_at: Mapped[str]
-class History(Base):
-    __tablename__ = 'history'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    task_title: Mapped[str]
-    old_status: Mapped[str]
-    new_status: Mapped[str]
-    created_at: Mapped[str]
-class Profile(Base):
-    __tablename__ = 'profile'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    display_name: Mapped[str]
-class WorkspaceSettings(Base):
-    __tablename__ = 'workspace_settings'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    board_name: Mapped[str]
-    theme: Mapped[str]
-    appearance: Mapped[str] = mapped_column(default='light')
-    notifications_enabled: Mapped[bool] = mapped_column(default=True)
-class ActiveTimer(Base):
-    __tablename__ = 'active_timer'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    task_id: Mapped[int]
-    started_at: Mapped[str]
-    elapsed_seconds: Mapped[float] = mapped_column(default=0)
-    paused_at: Mapped[str | None] = mapped_column(nullable=True)
-timer_task_index = Index('uq_active_timer_task_id', ActiveTimer.task_id, unique=True)
-class ProfileInput(BaseModel):
-    display_name: str = Field(min_length=1, max_length=80, pattern=r'.*\S.*')
-class SettingsInput(BaseModel):
-    board_name: str = Field(min_length=1, max_length=40, pattern=r'.*\S.*')
-    theme: Literal['azul','verde','roxo','terracota','grafite'] = 'azul'
-    appearance: Literal['light','dark'] = 'light'
-    notifications_enabled: bool = True
-class TimerInput(BaseModel):
-    task_id: int
-class ProjectInput(BaseModel):
-    name: str = Field(min_length=1, max_length=120, pattern=r'.*\S.*')
-    description: str = Field(default='', max_length=2000)
-class TaskInput(BaseModel):
-    title: str = Field(min_length=1, max_length=200, pattern=r'.*\S.*')
-    project_id: int
-    status: Literal['todo','doing','waiting','done'] = 'todo'
-    priority: Literal['critical','high','medium','low'] = 'medium'
-    assignee: str = Field(min_length=1, max_length=80, pattern=r'.*\S.*')
-    due_date: date | None = None
-    estimated_hours: float = Field(default=0, ge=0, le=100000)
-    recurrence: Literal['none','daily','weekly','monthly'] = 'none'
-    recurrence_end: date | None = None
-    label_ids: list[int] = []
-    dependency_ids: list[int] = []
-class EntryInput(BaseModel):
-    task_id: int
-    hours: float = Field(gt=0, le=24)
-    note: str = Field(default='', max_length=1000)
-class ChecklistInput(BaseModel):
-    title: str = Field(min_length=1, max_length=200, pattern=r'.*\S.*')
-class ChecklistUpdate(ChecklistInput):
-    is_done: bool
-class CommentInput(BaseModel):
-    author: str = Field(min_length=1, max_length=80, pattern=r'.*\S.*')
-    content: str = Field(min_length=1, max_length=4000, pattern=r'.*\S.*')
-class LabelInput(BaseModel):
-    name: str = Field(min_length=1, max_length=40, pattern=r'.*\S.*')
-    color: str = Field(pattern=r'^#[0-9A-Fa-f]{6}$')
-class AttachmentInput(BaseModel):
-    original_name: str = Field(min_length=1, max_length=255, pattern=r'.*\S.*')
-    content_base64: str
-class BackupProject(BaseModel):
-    id: int = Field(gt=0)
-    name: str = Field(min_length=1, max_length=120)
-    description: str = Field(default='', max_length=2000)
-    is_archived: bool = False
-class BackupTask(BaseModel):
-    id: int = Field(gt=0)
-    title: str = Field(min_length=1, max_length=200)
-    project_id: int = Field(gt=0)
-    status: Literal['todo','doing','waiting','done']
-    priority: Literal['critical','high','medium','low']
-    assignee: str = Field(min_length=1, max_length=80)
-    due_date: str = Field(default='', pattern=r'^$|^\d{4}-\d{2}-\d{2}$')
-    estimated_hours: float = Field(ge=0, le=100000)
-    is_archived: bool = False
-    recurrence: Literal['none','daily','weekly','monthly'] = 'none'
-    recurrence_end: str = Field(default='', pattern=r'^$|^\d{4}-\d{2}-\d{2}$')
-class BackupChecklistItem(BaseModel):
-    id: int = Field(gt=0)
-    task_id: int = Field(gt=0)
-    title: str = Field(min_length=1, max_length=200)
-    is_done: bool = False
-    created_at: str
-class BackupComment(BaseModel):
-    id: int = Field(gt=0)
-    task_id: int = Field(gt=0)
-    author: str = Field(min_length=1, max_length=80)
-    content: str = Field(min_length=1, max_length=4000)
-    created_at: str
-class BackupLabel(BaseModel):
-    id: int = Field(gt=0)
-    name: str = Field(min_length=1, max_length=40)
-    color: str = Field(pattern=r'^#[0-9A-Fa-f]{6}$')
-class BackupTaskLabel(BaseModel):
-    id: int = Field(gt=0)
-    task_id: int = Field(gt=0)
-    label_id: int = Field(gt=0)
-class BackupTaskDependency(BaseModel):
-    id: int = Field(gt=0)
-    task_id: int = Field(gt=0)
-    depends_on_id: int = Field(gt=0)
-class BackupAttachment(BaseModel):
-    id: int = Field(gt=0)
-    task_id: int = Field(gt=0)
-    original_name: str = Field(min_length=1, max_length=255)
-    stored_name: str = Field(min_length=1, max_length=255)
-    size: int = Field(ge=0, le=20*1024*1024)
-    created_at: str
-    content_base64: str = ''
-class BackupEntry(BaseModel):
-    id: int = Field(gt=0)
-    task_id: int = Field(gt=0)
-    task_title: str = Field(min_length=1, max_length=200)
-    hours: float = Field(gt=0, le=24)
-    note: str = Field(default='', max_length=1000)
-    created_at: str
-class BackupHistory(BaseModel):
-    id: int = Field(gt=0)
-    task_title: str = Field(min_length=1, max_length=200)
-    old_status: Literal['todo','doing','waiting','done']
-    new_status: Literal['todo','doing','waiting','done']
-    created_at: str
-class BackupTimer(BaseModel):
-    id: int = Field(gt=0)
-    task_id: int = Field(gt=0)
-    started_at: str
-    elapsed_seconds: float = Field(ge=0)
-    paused_at: str | None = None
-class BackupPayload(BaseModel):
-    format_version: Literal[1]
-    exported_at: str
-    profile: ProfileInput | None = None
-    settings: SettingsInput = SettingsInput(board_name='project-board')
-    projects: list[BackupProject] = []
-    tasks: list[BackupTask] = []
-    checklist_items: list[BackupChecklistItem] = []
-    comments: list[BackupComment] = []
-    labels: list[BackupLabel] = []
-    task_labels: list[BackupTaskLabel] = []
-    task_dependencies: list[BackupTaskDependency] = []
-    attachments: list[BackupAttachment] = []
-    entries: list[BackupEntry] = []
-    history: list[BackupHistory] = []
-    active_timers: list[BackupTimer] = []
+from app.models import (
+    ActiveTimer, Attachment, Base, ChecklistItem, Entry, History, Label, Profile,
+    Project, Task, TaskComment, TaskDependency, TaskLabel, WorkspaceSettings,
+    task_dependency_index, task_label_index, timer_task_index,
+)
+from app.schemas import (
+    AttachmentInput, BackupPayload, ChecklistInput, ChecklistUpdate, CommentInput,
+    EntryInput, LabelInput, ProfileInput, ProjectInput, SettingsInput, TaskInput, TimerInput,
+)
 def dump(row): return {c.name: getattr(row,c.name) for c in row.__table__.columns}
 @asynccontextmanager
 async def lifespan(app):

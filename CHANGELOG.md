@@ -7,6 +7,10 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 ### Adicionado
 
 - Atualizador integrado que consulta Releases do GitHub, avisa sobre versões novas, valida o executável baixado e reinicia o aplicativo após a substituição.
+
+### Alterado
+
+- Interface dividida em módulos de navegação, cabeçalho, configurações, duração e acesso à API; modelos e validações do backend separados das rotas.
 - Anexos em tarefas, com arquivos de até 20 MB, abertura pelo aplicativo padrão, remoção individual e preservação no arquivamento e backup.
 - Notificações nativas do Windows para prazos próximos, tarefas atrasadas e tarefas desbloqueadas, com controle nas configurações e prevenção de alertas repetidos.
 - Calendário mensal e semanal de prazos, com navegação por períodos, criação de tarefa em uma data, acesso à edição e relação de tarefas sem prazo.

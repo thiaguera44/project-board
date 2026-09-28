@@ -167,14 +167,21 @@ Na execução para desenvolvimento, o banco `backend/project_board.db` é criado
 ```text
 project-board/
 ├── backend/
-│   ├── app/main.py          # API, modelos e regras de persistência
+│   ├── app/main.py          # Inicialização e rotas da API
+│   ├── app/models.py        # Modelos e índices do banco de dados
+│   ├── app/schemas.py       # Validação das entradas e dos backups
 │   ├── app/task_rules.py    # Regras de recorrência e dependências
 │   ├── app/notifications.py # Regras dos alertas do Windows
 │   ├── requirements.txt     # Dependências Python
 │   └── project_board.db     # Banco local, criado ao iniciar a API
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx          # Telas e integração com a API
+│   │   ├── App.tsx          # Estado e composição das telas
+│   │   ├── AppSidebar.tsx   # Navegação e filtros laterais
+│   │   ├── AppHeader.tsx    # Cabeçalho, busca e avisos
+│   │   ├── WorkspaceModals.tsx # Perfil, aparência, backup e atualizações
+│   │   ├── DurationFields.tsx # Campos reutilizáveis de duração
+│   │   ├── api.ts           # Comunicação centralizada com a API
 │   │   ├── CalendarPage.tsx # Visualização mensal dos prazos
 │   │   ├── KanbanTaskCard.tsx # Cartão e controles das tarefas no Kanban
 │   │   ├── calendar.ts      # Cálculos e navegação do calendário
