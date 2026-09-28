@@ -1,18 +1,74 @@
 """Launch Project Board as a local Windows desktop application."""
 
 import os
+import base64
+import json
+from datetime import date
+from html import escape
 from pathlib import Path
+import subprocess
 import sys
-from threading import Thread
+from threading import Event, Thread
 import time
+from urllib.request import urlopen
 
 import uvicorn
 import webview
 
 
+def show_windows_notification(title: str, message: str) -> bool:
+    xml = (f'<toast><visual><binding template="ToastGeneric"><text>Project Board · {escape(title)}</text>'
+           f'<text>{escape(message)}</text></binding></visual></toast>')
+    xml_base64 = base64.b64encode(xml.encode('utf-8')).decode('ascii')
+    script = f"""
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null
+$content = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{xml_base64}'))
+$document = [Windows.Data.Xml.Dom.XmlDocument]::new()
+$document.LoadXml($content)
+$toast = [Windows.UI.Notifications.ToastNotification]::new($document)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Microsoft.WindowsPowerShell').Show($toast)
+"""
+    encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+    try:
+        completed = subprocess.run(
+            ['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+            capture_output=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), timeout=10,
+        )
+        return completed.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def notification_worker(base_url: str, data_dir: Path, stop: Event) -> None:
+    from app.notifications import mark_notified, notification_events
+
+    state_path = data_dir / 'notification_state.json'
+    try:
+        state = json.loads(state_path.read_text(encoding='utf-8')) if state_path.is_file() else {}
+    except (OSError, ValueError, TypeError):
+        state = {}
+    while not stop.is_set():
+        try:
+            with urlopen(f'{base_url}/api/settings', timeout=5) as response:
+                settings = json.load(response)
+            with urlopen(f'{base_url}/api/board', timeout=5) as response:
+                board = json.load(response)
+            events, state = notification_events(board, state, date.today())
+            if settings.get('notifications_enabled', True):
+                for event in events:
+                    if show_windows_notification(event['title'], event['message']):
+                        mark_notified(state, event['key'])
+            state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
+        except (OSError, ValueError, TypeError):
+            pass
+        stop.wait(60)
+
+
 class DesktopApi:
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, data_dir: Path | None = None) -> None:
         self.base_url = base_url
+        self.attachments_dir = (data_dir or Path.cwd()) / 'attachments'
         self.timer_window = None
 
     def show_timer(self) -> bool:
@@ -64,9 +120,18 @@ class DesktopApi:
         if not selected:
             return None
         path = Path(selected[0])
-        if path.stat().st_size > 20 * 1024 * 1024:
-            raise ValueError('O arquivo de backup ultrapassa o limite de 20 MB.')
+        if path.stat().st_size > 200 * 1024 * 1024:
+            raise ValueError('O arquivo de backup ultrapassa o limite de 200 MB.')
         return path.read_text(encoding='utf-8-sig')
+
+    def open_attachment(self, stored_name: str) -> bool:
+        if stored_name != Path(stored_name).name:
+            return False
+        path = self.attachments_dir / stored_name
+        if not path.is_file():
+            return False
+        os.startfile(path)
+        return True
 
 
 def main() -> None:
@@ -96,10 +161,15 @@ def main() -> None:
 
     port = server.servers[0].sockets[0].getsockname()[1]
     base_url = f'http://127.0.0.1:{port}'
+    notification_stop = Event()
+    notification_thread = Thread(target=notification_worker, args=(base_url, data_dir, notification_stop), daemon=True)
+    notification_thread.start()
     try:
-        webview.create_window('Project Board', f'{base_url}/', width=1280, height=800, min_size=(900, 600), js_api=DesktopApi(base_url))
+        webview.create_window('Project Board', f'{base_url}/', width=1280, height=800, min_size=(900, 600), js_api=DesktopApi(base_url, data_dir))
         webview.start()
     finally:
+        notification_stop.set()
+        notification_thread.join(timeout=2)
         server.should_exit = True
         thread.join(timeout=5)
 

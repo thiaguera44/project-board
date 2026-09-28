@@ -6,6 +6,13 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 
 ### Adicionado
 
+- Anexos em tarefas, com arquivos de até 20 MB, abertura pelo aplicativo padrão, remoção individual e preservação no arquivamento e backup.
+- Notificações nativas do Windows para prazos próximos, tarefas atrasadas e tarefas desbloqueadas, com controle nas configurações e prevenção de alertas repetidos.
+- Calendário mensal e semanal de prazos, com navegação por períodos, criação de tarefa em uma data, acesso à edição e relação de tarefas sem prazo.
+- Tarefas recorrentes diárias, semanais ou mensais, com término opcional, próxima ocorrência automática e checklist reiniciado.
+- Etiquetas personalizadas com cores, associação a tarefas, filtro rápido e preservação no backup.
+- Anotações com autor e data dentro das tarefas, preservadas no arquivamento e no backup.
+- Dependências entre tarefas, com bloqueios visíveis, validação de conclusão e proteção contra ciclos.
 - Backup completo em JSON e restauração validada de projetos, tarefas, horas, histórico, cronômetros, perfil e personalização.
 - Arquivamento e restauração de projetos e tarefas, preservando horas e histórico em uma área dedicada.
 - Checklists nas tarefas, com criação, conclusão, reabertura, exclusão e progresso visível no Kanban.
@@ -36,6 +43,7 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 
 ### Alterado
 
+- Configurações da interface, cartões do Kanban, tela de etiquetas e regras de recorrência e dependências separados em módulos próprios.
 - Tipos, cálculos de exportação e tela de relatórios separados em módulos próprios para facilitar manutenção.
 - Mensagem de falha de conexão apresentada em português, com orientação para tentar novamente.
 - Indicadores reorganizados em duas colunas em telas estreitas e nome completo do quadro exibido sem reticências.
@@ -48,7 +56,7 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 ### Validação
 
 - Layout validado em quatro larguras, sem transbordamento horizontal, e recuperação de conexão validada após interrupção da API.
-- Suíte completa validada com 16 testes do backend e 5 grupos de testes do frontend.
+- Suíte completa validada com 30 testes do backend e 5 grupos de testes do frontend.
 - Edição de registros validada com preservação da data original; exclusão validada pela suíte automatizada.
 - Exclusões e proteções validadas por testes automatizados, incluindo preservação dos registros de horas e do histórico.
 - Executável avulso iniciado a partir de outra pasta, com interface e API local respondendo.

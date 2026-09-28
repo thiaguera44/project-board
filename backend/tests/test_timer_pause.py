@@ -40,14 +40,14 @@ class TimerPauseTest(unittest.TestCase):
                 with engine.begin() as connection:
                     self.assertIn('is_archived', {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(projects)')})
                     self.assertIn('is_archived', {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(tasks)')})
-                self.assertEqual(main.get_settings(), {'board_name': 'Quadro legado', 'theme': 'azul', 'appearance': 'light'})
+                self.assertEqual(main.get_settings(), {'board_name': 'Quadro legado', 'theme': 'azul', 'appearance': 'light', 'notifications_enabled': True})
                 saved_settings = main.update_settings(
                     main.SettingsInput(board_name='  Quadro da equipe  ', theme='roxo', appearance='dark')
                 )
                 self.assertEqual(saved_settings['board_name'], 'Quadro da equipe')
                 self.assertEqual(saved_settings['theme'], 'roxo')
                 self.assertEqual(saved_settings['appearance'], 'dark')
-                self.assertEqual(main.get_settings(), {'board_name': 'Quadro da equipe', 'theme': 'roxo', 'appearance': 'dark'})
+                self.assertEqual(main.get_settings(), {'board_name': 'Quadro da equipe', 'theme': 'roxo', 'appearance': 'dark', 'notifications_enabled': True})
                 with Session(engine) as session:
                     session.add_all([
                         main.Project(id=1, name='Projeto', description=''),

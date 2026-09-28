@@ -64,7 +64,7 @@ class CoreFlowsTest(unittest.TestCase):
 
         saved = main.update_settings(main.SettingsInput(board_name='  Quadro pessoal  ', theme='verde', appearance='dark'))
         self.assertEqual(saved['board_name'], 'Quadro pessoal')
-        self.assertEqual(main.get_settings(), {'board_name': 'Quadro pessoal', 'theme': 'verde', 'appearance': 'dark'})
+        self.assertEqual(main.get_settings(), {'board_name': 'Quadro pessoal', 'theme': 'verde', 'appearance': 'dark', 'notifications_enabled': True})
 
     def test_invalid_inputs_and_missing_relationships_are_rejected(self):
         with self.assertRaises(ValidationError):

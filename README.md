@@ -25,6 +25,13 @@ Primeira versão funcional para execução local, com frontend conectado à API 
 - Arquivamento de projetos e tarefas com área dedicada para restauração.
 - Checklists dentro das tarefas, com acompanhamento do progresso nos cartões do Kanban.
 - Avisos para tarefas atrasadas, com vencimento no dia ou nos próximos três dias, com acesso direto pelo cabeçalho.
+- Notificações do Windows para prazos próximos, atrasos e tarefas desbloqueadas enquanto o aplicativo estiver aberto ou minimizado; podem ser desativadas nas configurações.
+- Tarefas recorrentes diárias, semanais ou mensais, com data final opcional e criação da próxima ocorrência ao concluir a atual.
+- Etiquetas personalizadas com nome, cor, associação a várias tarefas, busca e filtro rápido.
+- Anotações nas tarefas com autor, data e hora, preservadas durante o arquivamento.
+- Anexos de documentos e imagens nas tarefas, com abertura no programa padrão, remoção individual e limite de 20 MB por arquivo.
+- Dependências entre tarefas, com destaque de bloqueios e proteção contra conclusão antecipada ou ciclos.
+- Calendário mensal e semanal para visualizar prazos, criar tarefas em uma data e localizar tarefas ainda sem prazo.
 - Kanban com os status A fazer, Fazendo, Em aguardo e Concluído.
 - Movimentação por arrastar e soltar ou edição do status no formulário.
 - Registro manual de tempo trabalhado com observação.
@@ -98,7 +105,7 @@ Na raiz do projeto, execute:
 .\test-project.ps1
 ```
 
-O comando verifica o TypeScript, todos os minutos entre 0 e 24 horas e os fluxos do backend, incluindo projetos, tarefas, horas, histórico, perfil, personalização, exclusões e cronômetros. Os testes usam bancos temporários em memória e não alteram os dados do aplicativo.
+O comando verifica o TypeScript, todos os minutos entre 0 e 24 horas e os fluxos do backend, incluindo projetos, tarefas, recorrências, horas, histórico, perfil, personalização, exclusões e cronômetros. Os testes usam bancos temporários em memória e não alteram os dados do aplicativo.
 
 #### 2. Preparar o frontend
 
@@ -146,6 +153,7 @@ Uma instalação com banco novo começa vazia. Os projetos e registros simulados
 - A API e o banco ainda armazenam horas decimais; a conversão é feita pelo frontend. Por exemplo, 1h 30min corresponde a `1.5` na API. Valores existentes são exibidos com arredondamento ao minuto mais próximo.
 - Os indicadores do dashboard consideram as tarefas filtradas. Projetos ativos são os projetos com pelo menos uma tarefa não concluída no conjunto filtrado.
 - Uma tarefa é atrasada quando tem prazo anterior à data atual e não está concluída.
+- Uma tarefa recorrente precisa ter prazo. Ao concluí-la, o sistema cria a próxima ocorrência em **A fazer**, preserva seus dados e reinicia os itens do checklist. A data final, quando informada, limita a criação de novas ocorrências.
 - Um projeto com tarefas não pode ser excluído: primeiro é necessário transferir ou excluir suas tarefas.
 - Excluir uma tarefa preserva os registros de horas e as movimentações anteriores. Esses registros continuam nas respectivas listas; o dashboard soma horas das tarefas ainda presentes no conjunto filtrado.
 - O histórico registra mudanças de status, não todas as alterações dos campos.
@@ -159,11 +167,18 @@ Na execução para desenvolvimento, o banco `backend/project_board.db` é criado
 project-board/
 ├── backend/
 │   ├── app/main.py          # API, modelos e regras de persistência
+│   ├── app/task_rules.py    # Regras de recorrência e dependências
+│   ├── app/notifications.py # Regras dos alertas do Windows
 │   ├── requirements.txt     # Dependências Python
 │   └── project_board.db     # Banco local, criado ao iniciar a API
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx          # Telas e integração com a API
+│   │   ├── CalendarPage.tsx # Visualização mensal dos prazos
+│   │   ├── KanbanTaskCard.tsx # Cartão e controles das tarefas no Kanban
+│   │   ├── calendar.ts      # Cálculos e navegação do calendário
+│   │   ├── LabelsPage.tsx   # Gerenciamento de etiquetas
+│   │   ├── boardConfig.ts   # Textos, temas e formatadores compartilhados
 │   │   ├── duration.ts      # Conversão e apresentação de durações
 │   │   ├── main.tsx         # Entrada do React
 │   │   └── styles.css       # Estilos e adaptação de layout
@@ -202,6 +217,11 @@ project-board/
 | POST | `/api/tasks/{task_id}/checklist` | Adicionar um item ao checklist da tarefa |
 | PUT | `/api/checklist/{item_id}` | Atualizar ou concluir um item do checklist |
 | DELETE | `/api/checklist/{item_id}` | Excluir um item do checklist |
+| POST | `/api/tasks/{task_id}/comments` | Adicionar uma anotação à tarefa |
+| DELETE | `/api/comments/{comment_id}` | Excluir uma anotação |
+| POST | `/api/labels` | Criar uma etiqueta personalizada |
+| PUT | `/api/labels/{label_id}` | Atualizar nome e cor de uma etiqueta |
+| DELETE | `/api/labels/{label_id}` | Excluir uma etiqueta e removê-la das tarefas |
 | POST | `/api/entries` | Registrar horas trabalhadas |
 | PUT | `/api/entries/{entry_id}` | Editar um registro de horas |
 | DELETE | `/api/entries/{entry_id}` | Excluir um registro de horas |

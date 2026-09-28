@@ -26,13 +26,18 @@ class BackupTest(unittest.TestCase):
         main.update_profile(main.ProfileInput(display_name='Ana'))
         main.update_settings(main.SettingsInput(board_name='Equipe', theme='roxo', appearance='dark'))
         project = main.create_project(main.ProjectInput(name='Aplicativo', description='Descrição'))
+        label = main.create_label(main.LabelInput(name='Cliente', color='#7399cd'))
         task = main.create_task(main.TaskInput(
             title='Criar backup', project_id=project['id'], status='doing', priority='high',
-            assignee='Ana', due_date=date(2026, 10, 10), estimated_hours=3,
+            assignee='Ana', due_date=date(2026, 10, 10), estimated_hours=3, label_ids=[label['id']],
+        ))
+        dependent = main.create_task(main.TaskInput(
+            title='Publicar backup', project_id=project['id'], assignee='Ana', dependency_ids=[task['id']],
         ))
         main.create_entry(main.EntryInput(task_id=task['id'], hours=1.5, note='Primeira etapa'))
         item = main.create_checklist_item(task['id'], main.ChecklistInput(title='Revisar conteúdo'))
         main.update_checklist_item(item['id'], main.ChecklistUpdate(title=item['title'], is_done=True))
+        main.create_comment(task['id'], main.CommentInput(author='Ana', content='Aprovado para entrega'))
         main.start_timer(main.TimerInput(task_id=task['id']))
         backup = main.export_backup()
 
@@ -42,15 +47,20 @@ class BackupTest(unittest.TestCase):
 
         restored = main.restore_backup(main.BackupPayload.model_validate(backup))
 
-        self.assertEqual(restored, {'ok': True, 'projects': 1, 'tasks': 1, 'entries': 1, 'checklist_items': 1})
+        self.assertEqual(restored, {'ok': True, 'projects': 1, 'tasks': 2, 'entries': 1, 'checklist_items': 1})
         self.assertEqual(main.get_profile(), {'display_name': 'Ana'})
-        self.assertEqual(main.get_settings(), {'board_name': 'Equipe', 'theme': 'roxo', 'appearance': 'dark'})
+        self.assertEqual(main.get_settings(), {'board_name': 'Equipe', 'theme': 'roxo', 'appearance': 'dark', 'notifications_enabled': True})
         board = main.board()
         self.assertEqual(board['projects'][0]['name'], 'Aplicativo')
         self.assertEqual(board['tasks'][0]['title'], 'Criar backup')
+        self.assertEqual(board['labels'][0]['name'], 'Cliente')
+        self.assertEqual(board['tasks'][0]['label_ids'], [label['id']])
+        self.assertEqual(board['tasks'][1]['id'], dependent['id'])
+        self.assertEqual(board['tasks'][1]['dependency_ids'], [task['id']])
         self.assertEqual(board['entries'][0]['note'], 'Primeira etapa')
         self.assertEqual(board['checklist_items'][0]['title'], 'Revisar conteúdo')
         self.assertTrue(board['checklist_items'][0]['is_done'])
+        self.assertEqual(board['comments'][0]['content'], 'Aprovado para entrega')
         self.assertEqual(board['active_timers'][0]['task_id'], task['id'])
 
     def test_rejects_task_with_missing_project_without_replacing_data(self):

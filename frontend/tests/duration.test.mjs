@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { durationFromParts, formatDuration, splitDuration } from '../.test-build/duration.js';
 import { filterReportEntries, reportCsv } from '../.test-build/report.js';
 import { getDeadlineAlerts } from '../.test-build/deadlines.js';
+import { calendarDays, shiftDays, shiftMonth, weekDays } from '../.test-build/calendar.js';
 
 test('converte todos os minutos de 0 a 24 horas sem perder precisão', () => {
   for (let totalMinutes = 0; totalMinutes <= 24 * 60; totalMinutes += 1) {
@@ -60,4 +61,22 @@ test('classifica apenas prazos vencidos ou próximos', () => {
   assert.deepEqual(alerts.map(alert=>[alert.task.id,alert.days,alert.kind]),[
     [1,-2,'overdue'],[2,0,'today'],[3,3,'soon'],
   ]);
+});
+
+test('monta o calendário de segunda a domingo e navega entre anos', () => {
+  const days = calendarDays('2026-09');
+  assert.equal(days.length, 42);
+  assert.deepEqual(days[0], { date: '2026-08-31', day: 31, inMonth: false });
+  assert.deepEqual(days[41], { date: '2026-10-11', day: 11, inMonth: false });
+  assert.equal(days.filter(day => day.inMonth).length, 30);
+  assert.equal(shiftMonth('2026-12', 1), '2027-01');
+  assert.equal(shiftMonth('2026-01', -1), '2025-12');
+});
+
+test('monta uma semana completa e navega entre semanas', () => {
+  assert.deepEqual(weekDays('2026-09-30').map(day => day.date), [
+    '2026-09-28','2026-09-29','2026-09-30','2026-10-01','2026-10-02','2026-10-03','2026-10-04',
+  ]);
+  assert.equal(shiftDays('2026-12-28', 7), '2027-01-04');
+  assert.equal(shiftDays('2026-01-05', -7), '2025-12-29');
 });
