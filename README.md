@@ -44,8 +44,9 @@ Primeira versão funcional para execução local, com frontend conectado à API 
 - Busca de tarefas por título, responsável ou nome do projeto; busca de projetos por nome.
 - Filtros de tarefas por projeto, prioridade e status.
 - Histórico de mudanças de status.
-- Relatórios de horas por período e projeto, com resumo e detalhamento.
-- Exportação dos lançamentos filtrados em CSV compatível com Excel.
+- Relatórios por período e projeto com tempo estimado versus realizado, atrasos e produtividade diária.
+- Exportação dos lançamentos filtrados em CSV compatível com Excel e do relatório completo em PDF.
+- Verificação automática de novas versões nas Releases do GitHub, com download, validação, instalação e reinício pelo próprio aplicativo.
 - Layout adaptável à largura da tela.
 
 ## Como executar no Windows (PowerShell)

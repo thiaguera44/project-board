@@ -1,4 +1,5 @@
 import unittest
+import json
 from pathlib import Path
 import sys
 from unittest.mock import patch
@@ -18,6 +19,19 @@ class FakeWindow:
 
 
 class DesktopExportTest(unittest.TestCase):
+    def test_pdf_report_is_created(self):
+        target = Path(__file__).with_name('.report-test.pdf')
+        try:
+            window = FakeWindow(target)
+            content = json.dumps({'title': 'Relatório de teste', 'generated_at': '28/09/2026', 'filters': {'period': 'Setembro', 'project': 'Todos'}, 'summary': [['Realizado', '2h']], 'comparisons': [['Tarefa', 'Projeto', '1h', '2h', '+1h']], 'overdue': [], 'productivity': [['20/09/2026', '2h']], 'entries': []})
+            with patch.object(desktop.webview, 'windows', [window]):
+                self.assertTrue(desktop.DesktopApi('http://localhost').save_pdf('relatório?.pdf', content))
+            self.assertTrue(target.read_bytes().startswith(b'%PDF'))
+            self.assertGreater(target.stat().st_size, 1000)
+            self.assertEqual(window.arguments[1]['save_filename'], 'relatório.pdf')
+        finally:
+            target.unlink(missing_ok=True)
+
     def test_csv_is_saved_with_excel_compatible_encoding(self):
         target = Path(__file__).with_name('.export-test.csv')
         try:

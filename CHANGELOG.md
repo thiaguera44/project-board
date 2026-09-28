@@ -6,6 +6,7 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 
 ### Adicionado
 
+- Atualizador integrado que consulta Releases do GitHub, avisa sobre versões novas, valida o executável baixado e reinicia o aplicativo após a substituição.
 - Anexos em tarefas, com arquivos de até 20 MB, abertura pelo aplicativo padrão, remoção individual e preservação no arquivamento e backup.
 - Notificações nativas do Windows para prazos próximos, tarefas atrasadas e tarefas desbloqueadas, com controle nas configurações e prevenção de alertas repetidos.
 - Calendário mensal e semanal de prazos, com navegação por períodos, criação de tarefa em uma data, acesso à edição e relação de tarefas sem prazo.
@@ -20,7 +21,7 @@ Todas as alterações relevantes deste projeto serão documentadas aqui.
 - Personalização do nome do quadro e da paleta de cores, persistida entre as aberturas do aplicativo.
 - Modos claro e escuro persistentes, aplicados também à janela flutuante dos cronômetros.
 - Edição e exclusão de registros de horas pela tela de horas registradas.
-- Relatórios com filtros de período e projeto, totais consolidados e exportação em CSV.
+- Relatórios com filtros de período e projeto, comparação entre estimado e realizado, atrasos, produtividade diária e exportação em CSV e PDF.
 - Suíte automatizada executável por `test-project.ps1`, cobrindo os principais fluxos do backend e as conversões de duração do frontend.
 - Botões no Kanban para registrar horas manualmente ou iniciar o cronômetro da tarefa.
 - Cronômetros simultâneos em tarefas diferentes, persistentes entre reinicializações, com controles individuais para registrar ou descartar.

@@ -14,6 +14,7 @@ from urllib.request import urlopen
 
 import uvicorn
 import webview
+from updater import APP_VERSION, check_latest_release, download_executable, version_tuple
 
 
 def show_windows_notification(title: str, message: str) -> bool:
@@ -83,6 +84,39 @@ class DesktopApi:
         window.events.closed += lambda *args: setattr(self, 'timer_window', None)
         return True
 
+    def check_update(self) -> dict:
+        try:
+            return {'status': 'ok', **check_latest_release(APP_VERSION)}
+        except Exception:
+            return {'status': 'error', 'current_version': APP_VERSION, 'message': 'Não foi possível consultar novas versões agora.'}
+
+    def install_update(self, asset_url: str, version: str, digest: str = '') -> dict:
+        if not getattr(sys, 'frozen', False):
+            return {'status': 'error', 'message': 'A instalação automática está disponível no executável publicado.'}
+        version_tuple(version)
+        updates_dir = self.attachments_dir.parent / 'updates'
+        downloaded = download_executable(asset_url, updates_dir / f'ProjectBoard-{version}.exe', digest)
+        current = Path(sys.executable).resolve()
+        script = f"""
+$processId = {os.getpid()}
+$source = '{str(downloaded).replace("'", "''")}'
+$target = '{str(current).replace("'", "''")}'
+Wait-Process -Id $processId -ErrorAction SilentlyContinue
+$backup = $target + '.anterior'
+Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+Move-Item -LiteralPath $target -Destination $backup -Force
+Move-Item -LiteralPath $source -Destination $target -Force
+Start-Process -FilePath $target
+"""
+        encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+        subprocess.Popen(['powershell.exe', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        def close_after_response():
+            time.sleep(1)
+            if webview.windows:
+                webview.windows[0].destroy()
+        Thread(target=close_after_response, daemon=True).start()
+        return {'status': 'installing'}
+
     def save_csv(self, filename: str, content: str) -> bool:
         safe_name = ''.join(character for character in filename if character not in '<>:"/\\|?*').strip() or 'relatorio.csv'
         if not safe_name.lower().endswith('.csv'):
@@ -95,6 +129,45 @@ class DesktopApi:
         if not selected:
             return False
         Path(selected[0]).write_text(content, encoding='utf-8-sig')
+        return True
+
+    def save_pdf(self, filename: str, content: str) -> bool:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+        safe_name = ''.join(character for character in filename if character not in '<>:"/\\|?*').strip() or 'relatorio.pdf'
+        if not safe_name.lower().endswith('.pdf'):
+            safe_name += '.pdf'
+        selected = webview.windows[0].create_file_dialog(webview.FileDialog.SAVE, save_filename=safe_name, file_types=('Arquivo PDF (*.pdf)',))
+        if not selected:
+            return False
+        data = json.loads(content)
+        styles = getSampleStyleSheet()
+        document = SimpleDocTemplate(str(selected[0]), pagesize=landscape(A4), rightMargin=14*mm, leftMargin=14*mm, topMargin=12*mm, bottomMargin=12*mm)
+        story = [Paragraph(escape(str(data.get('title', 'Relatório'))), styles['Title']), Paragraph(f"Gerado em {escape(str(data.get('generated_at', '')))}", styles['Normal']), Spacer(1, 4*mm)]
+        filters = data.get('filters', {})
+        story.extend([Paragraph(f"<b>Período:</b> {escape(str(filters.get('period', '')))} &nbsp;&nbsp; <b>Projeto:</b> {escape(str(filters.get('project', '')))}", styles['Normal']), Spacer(1, 5*mm)])
+
+        def add_table(title, headers, rows, widths=None):
+            story.extend([Paragraph(escape(title), styles['Heading2']), Spacer(1, 1.5*mm)])
+            if not rows:
+                story.extend([Paragraph('Nenhum registro encontrado.', styles['Normal']), Spacer(1, 4*mm)])
+                return
+            values = [[Paragraph(f'<b>{escape(str(cell))}</b>', styles['BodyText']) for cell in headers]]
+            values += [[Paragraph(escape(str(cell)), styles['BodyText']) for cell in row] for row in rows]
+            table = Table(values, colWidths=widths, repeatRows=1, hAlign='LEFT')
+            table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#6f4d42')),('TEXTCOLOR',(0,0),(-1,0),colors.white),('GRID',(0,0),(-1,-1),.35,colors.HexColor('#d7dfe4')),('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),6),('RIGHTPADDING',(0,0),(-1,-1),6),('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f6f7f8')])]))
+            story.extend([table, Spacer(1, 5*mm)])
+
+        add_table('Resumo', ['Indicador', 'Valor'], data.get('summary', []), [75*mm, 45*mm])
+        add_table('Estimado x realizado', ['Tarefa', 'Projeto', 'Estimado', 'Realizado', 'Diferença'], data.get('comparisons', []), [70*mm, 55*mm, 30*mm, 30*mm, 30*mm])
+        add_table('Tarefas atrasadas', ['Tarefa', 'Projeto', 'Prazo', 'Dias'], data.get('overdue', []), [85*mm, 65*mm, 35*mm, 25*mm])
+        add_table('Produtividade diária', ['Data', 'Tempo realizado'], data.get('productivity', []), [60*mm, 60*mm])
+        add_table('Lançamentos de horas', ['Data', 'Projeto', 'Tarefa', 'Observação', 'Horas'], data.get('entries', []), [28*mm, 45*mm, 55*mm, 75*mm, 25*mm])
+        document.build(story)
         return True
 
     def save_backup(self, filename: str, content: str) -> bool:

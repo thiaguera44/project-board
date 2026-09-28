@@ -1,42 +1,27 @@
+import { Download, FileText } from 'lucide-react';
 import { formatDuration } from './duration';
-import { entryProjectId, filterReportEntries } from './report';
+import { entryProjectId, filterReportEntries, reportComparisons, reportDailyHours, reportOverdueTasks } from './report';
 import type { Entry, Project, Task } from './types';
 
-type Props={
- entries:Entry[];
- tasks:Task[];
- projects:Project[];
- from:string;
- to:string;
- project:string;
- onFrom:(value:string)=>void;
- onTo:(value:string)=>void;
- onProject:(value:string)=>void;
-};
+type Props={entries:Entry[];tasks:Task[];projects:Project[];from:string;to:string;project:string;onFrom:(value:string)=>void;onTo:(value:string)=>void;onProject:(value:string)=>void;onExportCsv:()=>void;onExportPdf:()=>void};
+const signed=(hours:number)=>`${hours>0?'+':hours<0?'-':''}${formatDuration(Math.abs(hours))}`;
 
 export default function ReportsPage(props:Props){
- const {entries,tasks,projects,from,to,project,onFrom,onTo,onProject}=props;
+ const {entries,tasks,projects,from,to,project,onFrom,onTo,onProject,onExportCsv,onExportPdf}=props;
  const filtered=filterReportEntries(entries,tasks,from,to,project);
- const total=filtered.reduce((sum,entry)=>sum+entry.hours,0);
- const projectTotals=projects.map(item=>({
-  id:item.id,
-  name:item.name,
-  hours:filtered.filter(entry=>entryProjectId(entry,tasks)===item.id).reduce((sum,entry)=>sum+entry.hours,0),
- })).filter(item=>item.hours>0);
+ const comparisons=reportComparisons(entries,tasks,projects,from,to,project);
+ const overdue=reportOverdueTasks(tasks,projects,new Date().toLocaleDateString('en-CA'),from,to,project);
+ const daily=reportDailyHours(filtered);
+ const total=filtered.reduce((sum,entry)=>sum+entry.hours,0),estimated=comparisons.reduce((sum,item)=>sum+item.estimated,0),difference=total-estimated;
+ const maxDaily=Math.max(0,...daily.map(item=>item.hours));
+ const projectTotals=projects.map(item=>({id:item.id,name:item.name,hours:filtered.filter(entry=>entryProjectId(entry,tasks)===item.id).reduce((sum,entry)=>sum+entry.hours,0)})).filter(item=>item.hours>0);
  const removed=filtered.filter(entry=>entryProjectId(entry,tasks)===null).reduce((sum,entry)=>sum+entry.hours,0);
  return <>
-  <section className="panel report-filters">
-   <div className="section-heading"><div><h3>Período e projeto</h3><p className="subtle">Os filtros também serão aplicados ao arquivo CSV.</p></div><button onClick={()=>{onFrom('');onTo('');onProject('')}}>Limpar filtros</button></div>
-   <div className="report-filter-grid"><label>De<input type="date" value={from} onChange={e=>onFrom(e.target.value)}/></label><label>Até<input type="date" value={to} onChange={e=>onTo(e.target.value)}/></label><label>Projeto<select value={project} onChange={e=>onProject(e.target.value)}><option value="">Todos os projetos</option>{projects.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
-  </section>
-  <div className="report-stats">
-   <section className="stat"><span>Horas no período</span><strong>{formatDuration(total)}</strong><small>Soma dos lançamentos filtrados</small></section>
-   <section className="stat"><span>Lançamentos</span><strong>{filtered.length}</strong><small>Registros encontrados</small></section>
-   <section className="stat"><span>Tarefas trabalhadas</span><strong>{new Set(filtered.map(entry=>entry.task_id)).size}</strong><small>Tarefas com horas registradas</small></section>
-  </div>
-  <div className="report-grid">
-   <section className="panel"><div className="section-heading"><h3>Horas por projeto</h3><span>{formatDuration(total)}</span></div><div className="report-projects">{projectTotals.map(item=><div key={item.id}><span>{item.name}</span><strong>{formatDuration(item.hours)}</strong><div><i style={{width:(total?item.hours/total*100:0)+'%'}}/></div></div>)}{!!removed&&<div><span>Projeto ou tarefa removida</span><strong>{formatDuration(removed)}</strong></div>}{!filtered.length&&<p className="empty">Nenhum lançamento encontrado para os filtros escolhidos.</p>}</div></section>
-   <section className="panel report-details"><div className="section-heading"><h3>Detalhamento</h3><span>{filtered.length} registros</span></div><div className="table-scroll"><table><thead><tr><th>Data</th><th>Projeto</th><th>Tarefa</th><th>Observação</th><th>Horas</th></tr></thead><tbody>{filtered.slice().reverse().map(entry=><tr key={entry.id}><td>{new Date(entry.created_at).toLocaleDateString('pt-BR')}</td><td>{projects.find(item=>item.id===entryProjectId(entry,tasks))?.name||'Removido'}</td><td>{entry.task_title}</td><td>{entry.note||'Sem observação'}</td><td><strong>{formatDuration(entry.hours)}</strong></td></tr>)}</tbody></table></div></section>
-  </div>
+  <section className="panel report-filters"><div className="section-heading"><div><h3>Período e projeto</h3><p className="subtle">Os filtros também serão aplicados aos arquivos exportados.</p></div><div className="report-actions"><button onClick={onExportCsv} disabled={!filtered.length}><Download size={15}/> CSV</button><button className="primary" onClick={onExportPdf}><FileText size={15}/> Exportar PDF</button><button onClick={()=>{onFrom('');onTo('');onProject('')}}>Limpar</button></div></div><div className="report-filter-grid"><label>De<input type="date" value={from} onChange={e=>onFrom(e.target.value)}/></label><label>Até<input type="date" value={to} onChange={e=>onTo(e.target.value)}/></label><label>Projeto<select value={project} onChange={e=>onProject(e.target.value)}><option value="">Todos os projetos</option>{projects.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div></section>
+  <div className="report-stats"><section className="stat"><span>Tempo realizado</span><strong>{formatDuration(total)}</strong><small>{filtered.length} lançamentos</small></section><section className="stat"><span>Tempo estimado</span><strong>{formatDuration(estimated)}</strong><small>{comparisons.length} tarefas comparadas</small></section><section className="stat"><span>Diferença</span><strong className={difference>0?'report-over':''}>{signed(difference)}</strong><small>{difference>0?'Acima da estimativa':'Em relação ao planejado'}</small></section><section className="stat"><span>Tarefas atrasadas</span><strong className={overdue.length?'report-over':''}>{overdue.length}</strong><small>Pendentes no período</small></section></div>
+  <div className="report-grid"><section className="panel"><div className="section-heading"><h3>Horas por projeto</h3><span>{formatDuration(total)}</span></div><div className="report-projects">{projectTotals.map(item=><div key={item.id}><span>{item.name}</span><strong>{formatDuration(item.hours)}</strong><div><i style={{width:(total?item.hours/total*100:0)+'%'}}/></div></div>)}{!!removed&&<div><span>Projeto ou tarefa removida</span><strong>{formatDuration(removed)}</strong></div>}{!filtered.length&&<p className="empty">Nenhum lançamento encontrado para os filtros escolhidos.</p>}</div></section><section className="panel report-productivity"><div className="section-heading"><h3>Produtividade diária</h3><span>{daily.length} dias trabalhados</span></div><div className="productivity-list">{daily.map(item=><div className="productivity-row" key={item.day}><time>{new Date(item.day+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</time><div><i style={{width:(maxDaily?item.hours/maxDaily*100:0)+'%'}}/></div><strong>{formatDuration(item.hours)}</strong></div>)}{!daily.length&&<p className="empty">Registre horas para visualizar a produtividade por dia.</p>}</div></section></div>
+  <section className="panel report-comparison"><div className="section-heading"><div><h3>Estimado x realizado</h3><p className="subtle">Diferenças positivas indicam tempo acima do planejado.</p></div><span>{comparisons.length} tarefas</span></div><div className="table-scroll"><table><thead><tr><th>Tarefa</th><th>Projeto</th><th>Estimado</th><th>Realizado</th><th>Diferença</th></tr></thead><tbody>{comparisons.map(item=><tr key={item.id}><td><strong>{item.title}</strong></td><td>{item.project}</td><td>{formatDuration(item.estimated)}</td><td>{formatDuration(item.actual)}</td><td className={item.difference>0?'difference over':'difference'}>{signed(item.difference)}</td></tr>)}</tbody></table>{!comparisons.length&&<p className="empty">Nenhuma tarefa com estimativa ou horas registradas.</p>}</div></section>
+  <section className="panel report-overdue"><div className="section-heading"><div><h3>Tarefas atrasadas</h3><p className="subtle">Itens pendentes com prazo já vencido.</p></div><span>{overdue.length}</span></div><div className="overdue-list">{overdue.map(item=><div className="overdue-row" key={item.id}><div><strong>{item.title}</strong><small>{item.project}</small></div><span>Prazo {new Date(item.due_date+'T12:00:00').toLocaleDateString('pt-BR')}</span><b>{item.days} {item.days===1?'dia':'dias'}</b></div>)}{!overdue.length&&<p className="empty">Nenhuma tarefa atrasada para os filtros escolhidos.</p>}</div></section>
+  <section className="panel report-details"><div className="section-heading"><h3>Detalhamento dos lançamentos</h3><span>{filtered.length} registros</span></div><div className="table-scroll"><table><thead><tr><th>Data</th><th>Projeto</th><th>Tarefa</th><th>Observação</th><th>Horas</th></tr></thead><tbody>{filtered.slice().reverse().map(entry=><tr key={entry.id}><td>{new Date(entry.created_at).toLocaleDateString('pt-BR')}</td><td>{projects.find(item=>item.id===entryProjectId(entry,tasks))?.name||'Removido'}</td><td>{entry.task_title}</td><td>{entry.note||'Sem observação'}</td><td><strong>{formatDuration(entry.hours)}</strong></td></tr>)}</tbody></table></div></section>
  </>;
 }

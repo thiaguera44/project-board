@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { durationFromParts, formatDuration, splitDuration } from '../.test-build/duration.js';
-import { filterReportEntries, reportCsv } from '../.test-build/report.js';
+import { filterReportEntries, reportComparisons, reportCsv, reportDailyHours, reportOverdueTasks } from '../.test-build/report.js';
 import { getDeadlineAlerts } from '../.test-build/deadlines.js';
 import { calendarDays, shiftDays, shiftMonth, weekDays } from '../.test-build/calendar.js';
 
@@ -46,6 +46,15 @@ test('filtra relatórios e gera CSV compatível com Excel', () => {
   assert.match(csv,/Projeto A/);
   assert.match(csv,/"1,50"/);
   assert.match(csv,/"Texto com ""aspas"""/);
+});
+
+test('calcula estimado, realizado, produtividade e atrasos dos relatórios', () => {
+  const entries=[{id:1,task_id:10,task_title:'Planejar',hours:1.5,note:'',created_at:'2026-09-20T10:00:00-03:00'},{id:2,task_id:10,task_title:'Planejar',hours:.5,note:'',created_at:'2026-09-20T14:00:00-03:00'}];
+  const tasks=[{id:10,project_id:1,title:'Planejar',status:'todo',due_date:'2026-09-19',estimated_hours:1},{id:20,project_id:1,title:'Concluída',status:'done',due_date:'2026-09-18',estimated_hours:2}];
+  const projects=[{id:1,name:'Projeto A'}];
+  assert.deepEqual(reportComparisons(entries,tasks,projects,'','','1').map(item=>[item.id,item.actual,item.difference]),[[20,0,-2],[10,2,1]]);
+  assert.deepEqual(reportDailyHours(entries),[{day:'2026-09-20',hours:2}]);
+  assert.deepEqual(reportOverdueTasks(tasks,projects,'2026-09-25','','','1').map(item=>[item.id,item.days]),[[10,6]]);
 });
 
 test('classifica apenas prazos vencidos ou próximos', () => {

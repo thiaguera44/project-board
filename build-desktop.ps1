@@ -28,6 +28,7 @@ try {
         --paths backend `
         --add-data 'frontend/dist;frontend/dist' `
         --collect-all webview `
+        --collect-all reportlab `
         desktop.py
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao gerar o executável.' }
 } finally {
