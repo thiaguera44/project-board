@@ -3,7 +3,6 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -106,15 +105,27 @@ class RunrunIntegrationTest(unittest.TestCase):
         self.assertEqual(linked['task']['runrunit_task_title'],'Preparar entrega')
         self.assertEqual(linked['task']['runrunit_origin'],'linked')
         self.assertEqual(linked['pending_hours'],1)
-        with self.assertRaises(HTTPException) as raised:
-            main.link_runrun_task(main.RunrunLinkInput(task_id=other['id'],board_id=7,board_name='Operações',runrunit_task_id=101))
-        self.assertEqual(raised.exception.status_code,409)
+        second=main.link_runrun_task(main.RunrunLinkInput(task_id=other['id'],board_id=7,board_name='Operações',runrunit_task_id=101))
+        self.assertEqual(second['task']['runrunit_id'],101)
+        preview=main.preview_runrun_board(main.RunrunPreviewInput(board_id=7,include_completed=True))
+        self.assertEqual(next(row for row in preview['tasks'] if row['id']==101)['linked_count'],2)
         self.assertEqual(main.sync_runrun_task_hours(task['id'])['sent'],1)
         self.assertEqual(self.client.sent[0][:2],(101,7200))
         main.unlink_runrun_task(task['id'])
         local=next(row for row in main.board()['tasks'] if row['id']==task['id'])
         self.assertIsNone(local['runrunit_id'])
+        still_linked=next(row for row in main.board()['tasks'] if row['id']==other['id'])
+        self.assertEqual(still_linked['runrunit_id'],101)
         self.assertEqual(len(main.board()['entries']),1)
+
+    def test_import_creates_separate_task_when_remote_is_only_linked(self):
+        project=main.create_project(main.ProjectInput(name='Projeto local'))
+        local=main.create_task(main.TaskInput(title='Tarefa local',project_id=project['id'],assignee='Ana'))
+        main.link_runrun_task(main.RunrunLinkInput(task_id=local['id'],board_id=7,board_name='Operações',runrunit_task_id=101))
+        result=main.import_runrun_board(main.RunrunImportInput(board_id=7,board_name='Operações',task_ids=[101]))
+        self.assertEqual(result['tasks_created'],1)
+        related=[task for task in main.board()['tasks'] if task['runrunit_id']==101]
+        self.assertEqual({task['runrunit_origin'] for task in related},{'linked','imported'})
 
     def test_failed_hour_is_listed_and_can_be_retried_separately(self):
         main.import_runrun_board(main.RunrunImportInput(board_id=7,board_name='Operações',task_ids=[101]))

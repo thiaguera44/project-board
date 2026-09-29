@@ -343,10 +343,12 @@ def preview_runrun_board(data: RunrunPreviewInput):
         })
     remote_by_id={row.get('id'):row for row in remote_tasks}
     with Session(engine) as s:
-        local_by_remote={row.runrunit_id:row for row in s.scalars(select(Task)) if row.runrunit_id is not None}
+        related=[row for row in s.scalars(select(Task)) if row.runrunit_id is not None]
+        local_by_remote={row.runrunit_id:row for row in related if row.runrunit_origin=='imported'}
+        linked_counts={remote_id:sum(1 for row in related if row.runrunit_id==remote_id and row.runrunit_origin=='linked') for remote_id in {row.runrunit_id for row in related}}
         profile=s.get(Profile,1);fallback=profile.display_name if profile else 'Runrun.it'
         for task in tasks:
-            local=local_by_remote.get(task['id']);task['already_imported']=local is not None;task['changes']=[];task['conflicts']=[]
+            local=local_by_remote.get(task['id']);task['already_imported']=local is not None;task['linked_count']=linked_counts.get(task['id'],0);task['changes']=[];task['conflicts']=[]
             if not local: continue
             remote=remote_by_id[task['id']];assignments=remote.get('assignments') or []
             assignee=remote.get('responsible_name') or remote.get('user_name') or (assignments[0].get('user_name') if assignments and isinstance(assignments[0],dict) else '') or fallback
@@ -372,8 +374,6 @@ def link_runrun_task(data: RunrunLinkInput):
     with Session(engine) as s:
         task=s.get(Task,data.task_id)
         if not task: raise HTTPException(404,'Tarefa local não encontrada.')
-        duplicate=s.scalar(select(Task).where((Task.runrunit_id==data.runrunit_task_id)&(Task.id!=data.task_id)))
-        if duplicate: raise HTTPException(409,f'A tarefa do Runrun.it já está vinculada a “{duplicate.title}”.')
         task.runrunit_id=data.runrunit_task_id;task.runrunit_board_id=data.board_id
         task.runrunit_task_title=str(remote.get('title') or f'Tarefa {data.runrunit_task_id}')[:200]
         closed={row.get('id') for row in stages if str(row.get('stage_group') or '').lower() in {'closed','done'}}
@@ -426,7 +426,7 @@ def import_runrun_board(data: RunrunImportInput):
                 s.add(local_project);s.flush();local_projects[remote_project_id]=local_project;created_projects+=1
             remote_id=remote.get('id')
             if not remote_id: continue
-            task=s.scalar(select(Task).where(Task.runrunit_id==remote_id));existing=task is not None
+            task=s.scalar(select(Task).where((Task.runrunit_id==remote_id)&(Task.runrunit_origin=='imported')));existing=task is not None
             if existing: updated_tasks+=1
             else: task=Task();created_tasks+=1
             assignments=remote.get('assignments') or []
