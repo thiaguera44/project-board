@@ -41,7 +41,7 @@ class CoreFlowsTest(unittest.TestCase):
             due_date=date(2026, 10, 2),
             estimated_hours=3,
         ))
-        entry = main.create_entry(main.EntryInput(task_id=task['id'], hours=1.25, note='Planejamento'))
+        entry = main.create_entry(main.EntryInput(task_id=task['id'], hours=1.25, note='Planejamento', work_date=date(2026, 9, 15)))
         original_created_at = entry['created_at']
         entry = main.update_entry(entry['id'], main.EntryInput(task_id=task['id'], hours=2, note='Revisado'))
         board = main.board()
@@ -53,6 +53,7 @@ class CoreFlowsTest(unittest.TestCase):
         self.assertEqual(board['entries'][0]['hours'], 2)
         self.assertEqual(board['entries'][0]['note'], 'Revisado')
         self.assertEqual(board['entries'][0]['created_at'], original_created_at)
+        self.assertTrue(board['entries'][0]['created_at'].startswith('2026-09-15'))
         self.assertEqual(board['history'][0]['old_status'], 'todo')
         self.assertEqual(board['history'][0]['new_status'], 'doing')
         self.assertEqual(main.delete_entry(entry['id']), {'ok': True})

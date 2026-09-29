@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 import base64
 import binascii
+import json
 import os
 from pathlib import Path
 import sys
@@ -25,13 +26,15 @@ bundle_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2])
 web_dir = Path(os.getenv('PROJECT_BOARD_WEB_DIR', str(bundle_root / 'frontend' / 'dist')))
 from app.models import (
     ActiveTimer, Attachment, Base, ChecklistItem, Entry, History, Label, Profile,
-    Project, Task, TaskComment, TaskDependency, TaskLabel, WorkspaceSettings,
+    Project, RunrunBoardMapping, RunrunIntegrationLog, RunrunSettings, Task, TaskComment, TaskDependency, TaskLabel, WorkspaceSettings,
     task_dependency_index, task_label_index, timer_task_index,
 )
 from app.schemas import (
     AttachmentInput, BackupPayload, ChecklistInput, ChecklistUpdate, CommentInput,
-    EntryInput, LabelInput, ProfileInput, ProjectInput, SettingsInput, TaskInput, TimerInput,
+    EntryInput, LabelInput, ProfileInput, ProjectInput, RunrunAutomationInput, RunrunCredentialsInput, RunrunImportInput, RunrunLinkInput, RunrunPreviewInput, RunrunStatusMappingInput, RunrunUserMappingInput, SettingsInput, TaskInput, TimerInput,
 )
+from app.runrunit import CredentialStore, RunrunClient, RunrunError
+credential_store = CredentialStore(database_path.parent / 'runrunit_credentials.dat')
 def dump(row): return {c.name: getattr(row,c.name) for c in row.__table__.columns}
 @asynccontextmanager
 async def lifespan(app):
@@ -57,6 +60,42 @@ async def lifespan(app):
             connection.exec_driver_sql("ALTER TABLE tasks ADD COLUMN recurrence VARCHAR NOT NULL DEFAULT 'none'")
         if 'recurrence_end' not in task_columns:
             connection.exec_driver_sql("ALTER TABLE tasks ADD COLUMN recurrence_end VARCHAR NOT NULL DEFAULT ''")
+        if 'runrunit_id' not in project_columns:
+            connection.exec_driver_sql('ALTER TABLE projects ADD COLUMN runrunit_id INTEGER')
+        if 'runrunit_id' not in task_columns:
+            connection.exec_driver_sql('ALTER TABLE tasks ADD COLUMN runrunit_id INTEGER')
+        if 'runrunit_board_id' not in task_columns:
+            connection.exec_driver_sql('ALTER TABLE tasks ADD COLUMN runrunit_board_id INTEGER')
+        if 'runrunit_task_title' not in task_columns:
+            connection.exec_driver_sql("ALTER TABLE tasks ADD COLUMN runrunit_task_title VARCHAR NOT NULL DEFAULT ''")
+        if 'runrunit_board_name' not in task_columns:
+            connection.exec_driver_sql("ALTER TABLE tasks ADD COLUMN runrunit_board_name VARCHAR NOT NULL DEFAULT ''")
+        if 'runrunit_origin' not in task_columns:
+            connection.exec_driver_sql("ALTER TABLE tasks ADD COLUMN runrunit_origin VARCHAR NOT NULL DEFAULT ''")
+        if 'runrunit_last_synced_status' not in task_columns:
+            connection.exec_driver_sql("ALTER TABLE tasks ADD COLUMN runrunit_last_synced_status VARCHAR NOT NULL DEFAULT ''")
+        if 'runrunit_status_error' not in task_columns:
+            connection.exec_driver_sql("ALTER TABLE tasks ADD COLUMN runrunit_status_error VARCHAR NOT NULL DEFAULT ''")
+        if 'runrunit_snapshot' not in task_columns:
+            connection.exec_driver_sql("ALTER TABLE tasks ADD COLUMN runrunit_snapshot VARCHAR NOT NULL DEFAULT ''")
+        entry_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(entries)')}
+        if 'runrunit_synced_at' not in entry_columns:
+            connection.exec_driver_sql('ALTER TABLE entries ADD COLUMN runrunit_synced_at VARCHAR')
+        if 'runrunit_work_period_id' not in entry_columns:
+            connection.exec_driver_sql('ALTER TABLE entries ADD COLUMN runrunit_work_period_id INTEGER')
+        if 'runrunit_sync_attempted_at' not in entry_columns:
+            connection.exec_driver_sql('ALTER TABLE entries ADD COLUMN runrunit_sync_attempted_at VARCHAR')
+        if 'runrunit_sync_error' not in entry_columns:
+            connection.exec_driver_sql("ALTER TABLE entries ADD COLUMN runrunit_sync_error VARCHAR NOT NULL DEFAULT ''")
+        runrun_settings_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(runrunit_settings)')}
+        if 'last_sync_at' not in runrun_settings_columns:
+            connection.exec_driver_sql('ALTER TABLE runrunit_settings ADD COLUMN last_sync_at VARCHAR')
+        if 'mapped_user_id' not in runrun_settings_columns:
+            connection.exec_driver_sql("ALTER TABLE runrunit_settings ADD COLUMN mapped_user_id VARCHAR NOT NULL DEFAULT ''")
+        if 'mapped_user_name' not in runrun_settings_columns:
+            connection.exec_driver_sql("ALTER TABLE runrunit_settings ADD COLUMN mapped_user_name VARCHAR NOT NULL DEFAULT ''")
+        if 'auto_sync_hours' not in runrun_settings_columns:
+            connection.exec_driver_sql('ALTER TABLE runrunit_settings ADD COLUMN auto_sync_hours BOOLEAN NOT NULL DEFAULT 0')
     timer_task_index.create(engine, checkfirst=True)
     task_label_index.create(engine, checkfirst=True)
     task_dependency_index.create(engine, checkfirst=True)
@@ -135,6 +174,340 @@ def update_settings(data: SettingsInput):
         row.notifications_enabled = data.notifications_enabled
         s.add(row); s.commit()
         return dump(row)
+
+def runrun_client():
+    credentials = credential_store.load()
+    if not credentials: raise HTTPException(409, 'Configure a conexão com o Runrun.it primeiro.')
+    return RunrunClient(credentials['app_key'], credentials['user_token'])
+
+def add_runrun_log(operation:str,status:str,message:str):
+    with Session(engine) as s:
+        s.add(RunrunIntegrationLog(operation=operation,status=status,message=message[:1000],created_at=datetime.now(timezone.utc).isoformat()));s.commit()
+
+def runrun_rows(payload, key):
+    if isinstance(payload, list): return payload
+    if isinstance(payload, dict): return payload.get(key, payload.get('data', []))
+    return []
+
+@app.get('/api/integrations/runrunit')
+def runrun_status():
+    with Session(engine) as s:
+        settings=s.get(RunrunSettings,1)
+        imported_board_ids=sorted({row for row in s.scalars(select(Task.runrunit_board_id).where(Task.runrunit_origin=='imported')) if row is not None})
+        pending=failed=synced=pending_statuses=0
+        for entry in s.scalars(select(Entry)):
+            task=s.get(Task,entry.task_id)
+            if not task or not task.runrunit_id: continue
+            if entry.runrunit_synced_at: synced+=1
+            elif entry.runrunit_sync_error: failed+=1
+            else: pending+=1
+        for task in s.scalars(select(Task)):
+            if task.runrunit_id and task.status!=task.runrunit_last_synced_status: pending_statuses+=1
+        return {'configured': credential_store.path.is_file(), 'board_id': settings.board_id if settings else None, 'board_name': settings.board_name if settings else '', 'last_sync_at':settings.last_sync_at if settings else None, 'mapped_user_id':settings.mapped_user_id if settings else '', 'mapped_user_name':settings.mapped_user_name if settings else '', 'auto_sync_hours':settings.auto_sync_hours if settings else False, 'pending_hours': pending, 'failed_hours': failed, 'synced_hours': synced, 'pending_statuses':pending_statuses, 'imported_board_ids': imported_board_ids}
+
+@app.get('/api/integrations/runrunit/hours')
+def runrun_hour_records():
+    with Session(engine) as s:
+        result=[]
+        for entry in s.scalars(select(Entry).order_by(Entry.id.desc())):
+            task=s.get(Task,entry.task_id)
+            if not task or not task.runrunit_id: continue
+            state='sent' if entry.runrunit_synced_at else ('failed' if entry.runrunit_sync_error else 'pending')
+            result.append({**dump(entry),'state':state,'remote_task_id':task.runrunit_id,'remote_task_title':task.runrunit_task_title or task.title})
+        return result
+
+@app.get('/api/integrations/runrunit/history')
+def runrun_history():
+    with Session(engine) as s: return [dump(row) for row in s.scalars(select(RunrunIntegrationLog).order_by(RunrunIntegrationLog.id.desc()).limit(100))]
+
+@app.put('/api/integrations/runrunit')
+def configure_runrun(data: RunrunCredentialsInput):
+    client=RunrunClient(data.app_key.strip(),data.user_token.strip())
+    try: client.test()
+    except RunrunError as exc: raise HTTPException(502,str(exc)) from exc
+    credential_store.save(data.app_key,data.user_token)
+    return {'ok':True,'configured':True}
+
+@app.get('/api/integrations/runrunit/boards')
+def runrun_boards():
+    try: rows=runrun_rows(runrun_client().boards(),'boards')
+    except RunrunError as exc: raise HTTPException(502,str(exc)) from exc
+    return [{'id':row.get('id'),'name':row.get('name') or row.get('title') or f"Quadro {row.get('id')}"} for row in rows if row.get('id')]
+
+@app.get('/api/integrations/runrunit/users')
+def runrun_users():
+    try: rows=runrun_rows(runrun_client().users(),'users')
+    except RunrunError as exc: raise HTTPException(502,str(exc)) from exc
+    result=[]
+    for row in rows:
+        user_id=row.get('id') or row.get('user_id')
+        if user_id is not None: result.append({'id':str(user_id),'name':row.get('name') or row.get('user_name') or row.get('email') or str(user_id)})
+    return sorted(result,key=lambda row:str(row['name']).casefold())
+
+@app.put('/api/integrations/runrunit/user-mapping')
+def save_runrun_user_mapping(data:RunrunUserMappingInput):
+    user_id=data.user_id.strip();user_name=data.user_name.strip()
+    if user_id:
+        users=runrun_users();matched=next((row for row in users if row['id']==user_id),None)
+        if not matched: raise HTTPException(422,'O usuário selecionado não foi encontrado no Runrun.it.')
+        user_name=matched['name']
+    with Session(engine) as s:
+        row=s.get(RunrunSettings,1) or RunrunSettings(id=1)
+        row.mapped_user_id=user_id;row.mapped_user_name=user_name;s.add(row);s.commit()
+        return {'user_id':user_id,'user_name':user_name}
+
+@app.put('/api/integrations/runrunit/automation')
+def save_runrun_automation(data:RunrunAutomationInput):
+    with Session(engine) as s:
+        row=s.get(RunrunSettings,1) or RunrunSettings(id=1)
+        row.auto_sync_hours=data.auto_sync_hours;s.add(row);s.commit()
+        return {'auto_sync_hours':row.auto_sync_hours}
+
+@app.get('/api/integrations/runrunit/boards/{board_id}/stages')
+def runrun_stages(board_id:int):
+    try: rows=runrun_rows(runrun_client().stages(board_id),'stages')
+    except RunrunError as exc: raise HTTPException(502,str(exc)) from exc
+    return [{'id':row.get('id'),'name':row.get('name') or f"Etapa {row.get('id')}",'stage_group':row.get('stage_group') or 'opened'} for row in rows if row.get('id')]
+
+@app.get('/api/integrations/runrunit/boards/{board_id}/status-mapping')
+def get_runrun_status_mapping(board_id:int):
+    with Session(engine) as s:
+        row=s.get(RunrunBoardMapping,board_id)
+        return dump(row) if row else {'board_id':board_id,'enabled':False,'todo_stage_id':None,'doing_stage_id':None,'waiting_stage_id':None,'done_stage_id':None}
+
+@app.put('/api/integrations/runrunit/boards/{board_id}/status-mapping')
+def save_runrun_status_mapping(board_id:int,data:RunrunStatusMappingInput):
+    values=data.model_dump()
+    if data.enabled and any(values[key] is None for key in ('todo_stage_id','doing_stage_id','waiting_stage_id','done_stage_id')):
+        raise HTTPException(422,'Selecione uma etapa do Runrun.it para cada coluna local.')
+    try: valid_ids={row['id'] for row in runrun_stages(board_id)}
+    except HTTPException: raise
+    chosen={value for key,value in values.items() if key.endswith('_stage_id') and value is not None}
+    if not chosen.issubset(valid_ids): raise HTTPException(422,'Uma das etapas selecionadas não pertence a este quadro.')
+    with Session(engine) as s:
+        row=s.get(RunrunBoardMapping,board_id) or RunrunBoardMapping(board_id=board_id)
+        for key,value in values.items(): setattr(row,key,value)
+        s.add(row);s.commit();s.refresh(row);return dump(row)
+
+def sync_one_runrun_status(task_id:int):
+    with Session(engine) as s:
+        task=s.get(Task,task_id)
+        if not task or not task.runrunit_id or not task.runrunit_board_id: return False
+        mapping=s.get(RunrunBoardMapping,task.runrunit_board_id)
+        if not mapping or not mapping.enabled: return False
+        stage_id=getattr(mapping,f'{task.status}_stage_id')
+        if not stage_id: return False
+        try:
+            runrun_client().move_task(task.runrunit_id,stage_id)
+            task.runrunit_last_synced_status=task.status;task.runrunit_status_error='';s.add(task);s.commit();return True
+        except RunrunError as exc:
+            task.runrunit_status_error=str(exc)[:1000];s.add(task);s.commit();return False
+
+@app.post('/api/integrations/runrunit/sync-statuses')
+def sync_runrun_statuses():
+    with Session(engine) as s: ids=[task.id for task in s.scalars(select(Task)) if task.runrunit_id and task.status!=task.runrunit_last_synced_status]
+    sent=sum(1 for task_id in ids if sync_one_runrun_status(task_id))
+    failed=len(ids)-sent;add_runrun_log('status','success' if not failed else 'error',f'{sent} status enviados; {failed} falharam.')
+    return {'ok':not failed,'sent':sent,'failed':failed}
+
+def imported_status(row, closed_stages):
+    state=str(row.get('state') or '').lower()
+    if state in {'closed','done','completed'} or row.get('board_stage_id') in closed_stages: return 'done'
+    if state in {'working_on','working','in_progress'}: return 'doing'
+    stage=str(row.get('board_stage_name') or '').lower()
+    if 'esper' in stage or 'aguard' in stage: return 'waiting'
+    return 'todo'
+
+@app.post('/api/integrations/runrunit/preview')
+def preview_runrun_board(data: RunrunPreviewInput):
+    client=runrun_client()
+    try:
+        remote_projects=runrun_rows(client.projects(),'projects')
+        stages=runrun_rows(client.stages(data.board_id),'stages')
+        remote_tasks=client.tasks(data.board_id)
+    except RunrunError as exc: raise HTTPException(502,str(exc)) from exc
+    project_data={row.get('id'):row for row in remote_projects}
+    closed_stages={row.get('id') for row in stages if str(row.get('stage_group') or '').lower() in {'closed','done'}}
+    tasks=[]
+    for row in remote_tasks:
+        remote_id=row.get('id')
+        if not remote_id: continue
+        status=imported_status(row,closed_stages)
+        if not data.include_completed and status=='done': continue
+        project=project_data.get(row.get('project_id'),{})
+        tasks.append({
+            'id':remote_id,'title':str(row.get('title') or 'Tarefa do Runrun.it'),
+            'project_id':row.get('project_id'),'project_name':project.get('name') or row.get('project_name') or 'Sem projeto',
+            'status':status,'due_date':str(row.get('desired_date') or row.get('due_date') or '')[:10],
+            'already_imported':False,
+        })
+    remote_by_id={row.get('id'):row for row in remote_tasks}
+    with Session(engine) as s:
+        local_by_remote={row.runrunit_id:row for row in s.scalars(select(Task)) if row.runrunit_id is not None}
+        profile=s.get(Profile,1);fallback=profile.display_name if profile else 'Runrun.it'
+        for task in tasks:
+            local=local_by_remote.get(task['id']);task['already_imported']=local is not None;task['changes']=[];task['conflicts']=[]
+            if not local: continue
+            remote=remote_by_id[task['id']];assignments=remote.get('assignments') or []
+            assignee=remote.get('responsible_name') or remote.get('user_name') or (assignments[0].get('user_name') if assignments and isinstance(assignments[0],dict) else '') or fallback
+            expected={'title':task['title'],'status':task['status'],'due_date':task['due_date'],'estimated_hours':max(0,float(remote.get('time_estimated') or remote.get('estimated_seconds') or 0)/3600),'assignee':str(assignee)[:80],'priority':'critical' if remote.get('is_urgent') else 'medium'}
+            task['changes']=[key for key,value in expected.items() if getattr(local,key)!=value]
+            try: snapshot=json.loads(local.runrunit_snapshot) if local.runrunit_snapshot else {}
+            except (TypeError,ValueError): snapshot={}
+            task['conflicts']=[key for key in task['changes'] if key in snapshot and getattr(local,key)!=snapshot[key] and expected[key]!=snapshot[key]]
+    scanned=len(tasks)
+    if data.incremental: tasks=[task for task in tasks if not task['already_imported'] or task['changes']]
+    tasks.sort(key=lambda row:(str(row['project_name']).casefold(),str(row['title']).casefold()))
+    return {'tasks':tasks,'total':len(tasks),'scanned':scanned,'incremental':data.incremental,'completed_hidden':sum(1 for row in remote_tasks if imported_status(row,closed_stages)=='done') if not data.include_completed else 0}
+
+@app.post('/api/integrations/runrunit/link')
+def link_runrun_task(data: RunrunLinkInput):
+    client=runrun_client()
+    try:
+        remote_tasks=client.tasks(data.board_id)
+        stages=runrun_rows(client.stages(data.board_id),'stages')
+    except RunrunError as exc: raise HTTPException(502,str(exc)) from exc
+    remote=next((row for row in remote_tasks if row.get('id')==data.runrunit_task_id),None)
+    if not remote: raise HTTPException(404,'A tarefa selecionada não foi encontrada no Runrun.it.')
+    with Session(engine) as s:
+        task=s.get(Task,data.task_id)
+        if not task: raise HTTPException(404,'Tarefa local não encontrada.')
+        duplicate=s.scalar(select(Task).where((Task.runrunit_id==data.runrunit_task_id)&(Task.id!=data.task_id)))
+        if duplicate: raise HTTPException(409,f'A tarefa do Runrun.it já está vinculada a “{duplicate.title}”.')
+        task.runrunit_id=data.runrunit_task_id;task.runrunit_board_id=data.board_id
+        task.runrunit_task_title=str(remote.get('title') or f'Tarefa {data.runrunit_task_id}')[:200]
+        closed={row.get('id') for row in stages if str(row.get('stage_group') or '').lower() in {'closed','done'}}
+        task.runrunit_board_name=data.board_name.strip()[:200];task.runrunit_origin='linked'
+        task.runrunit_last_synced_status=imported_status(remote,closed);task.runrunit_status_error=''
+        s.add(task);s.commit();s.refresh(task)
+        pending=sum(1 for row in s.scalars(select(Entry).where(Entry.task_id==task.id)) if not row.runrunit_synced_at)
+        return {'ok':True,'task':dump(task),'pending_hours':pending}
+
+@app.delete('/api/integrations/runrunit/link/{task_id}')
+def unlink_runrun_task(task_id: int):
+    with Session(engine) as s:
+        task=s.get(Task,task_id)
+        if not task: raise HTTPException(404,'Tarefa local não encontrada.')
+        task.runrunit_id=None;task.runrunit_board_id=None;task.runrunit_task_title='';task.runrunit_board_name='';task.runrunit_origin='';task.runrunit_last_synced_status='';task.runrunit_status_error=''
+        s.add(task);s.commit()
+        return {'ok':True}
+
+@app.post('/api/integrations/runrunit/import')
+def import_runrun_board(data: RunrunImportInput):
+    client=runrun_client()
+    try:
+        remote_projects=runrun_rows(client.projects(),'projects')
+        stages=runrun_rows(client.stages(data.board_id),'stages')
+        remote_tasks=client.tasks(data.board_id)
+    except RunrunError as exc: raise HTTPException(502,str(exc)) from exc
+    selected_ids=set(data.task_ids) if data.task_ids is not None else None
+    if selected_ids is not None: remote_tasks=[row for row in remote_tasks if row.get('id') in selected_ids]
+    project_data={row.get('id'):row for row in remote_projects}
+    closed_stages={row.get('id') for row in stages if str(row.get('stage_group') or '').lower() in {'closed','done'}}
+    created_projects=created_tasks=updated_tasks=0
+    backup_created=engine.url.database!=':memory:'
+    if backup_created:
+        backups=database_path.parent/'automatic_backups';backups.mkdir(parents=True,exist_ok=True)
+        path=backups/f"before_runrunit_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.json"
+        path.write_text(json.dumps(export_backup(),ensure_ascii=False,indent=2),encoding='utf-8')
+        for old in sorted(backups.glob('before_runrunit_*.json'),reverse=True)[10:]: old.unlink(missing_ok=True)
+    with Session(engine) as s:
+        profile=s.get(Profile,1)
+        settings=s.get(RunrunSettings,1)
+        fallback_assignee=(settings.mapped_user_name if settings and settings.mapped_user_name else '') or (profile.display_name if profile else 'Runrun.it')
+        local_projects={row.runrunit_id:row for row in s.scalars(select(Project)) if row.runrunit_id}
+        for remote in remote_tasks:
+            remote_project_id=remote.get('project_id')
+            local_project=local_projects.get(remote_project_id)
+            if not local_project:
+                source=project_data.get(remote_project_id,{})
+                name=source.get('name') or remote.get('project_name') or data.board_name or 'Runrun.it'
+                local_project=Project(name=str(name)[:120],description=str(source.get('description') or '')[:2000],is_archived=False,runrunit_id=remote_project_id)
+                s.add(local_project);s.flush();local_projects[remote_project_id]=local_project;created_projects+=1
+            remote_id=remote.get('id')
+            if not remote_id: continue
+            task=s.scalar(select(Task).where(Task.runrunit_id==remote_id));existing=task is not None
+            if existing: updated_tasks+=1
+            else: task=Task();created_tasks+=1
+            assignments=remote.get('assignments') or []
+            assignee=remote.get('responsible_name') or remote.get('user_name') or (assignments[0].get('user_name') if assignments and isinstance(assignments[0],dict) else '') or fallback_assignee
+            due=str(remote.get('desired_date') or remote.get('due_date') or '')[:10]
+            seconds=remote.get('time_estimated') or remote.get('estimated_seconds') or 0
+            incoming={'title':str(remote.get('title') or 'Tarefa do Runrun.it')[:200],'status':imported_status(remote,closed_stages),'priority':'critical' if remote.get('is_urgent') else 'medium','assignee':str(assignee)[:80],'due_date':due if len(due)==10 else '','estimated_hours':max(0,float(seconds or 0)/3600)}
+            task.project_id=local_project.id
+            for field,value in incoming.items():
+                if not existing or field in data.update_fields: setattr(task,field,value)
+            task.is_archived=False;task.recurrence='none';task.recurrence_end=''
+            task.runrunit_id=remote_id;task.runrunit_board_id=data.board_id
+            task.runrunit_task_title=incoming['title'];task.runrunit_board_name=data.board_name.strip();task.runrunit_origin='imported';task.runrunit_last_synced_status=incoming['status'];task.runrunit_status_error='';task.runrunit_snapshot=json.dumps(incoming,ensure_ascii=False);s.add(task)
+        settings=s.get(RunrunSettings,1) or RunrunSettings(id=1)
+        settings.board_id=data.board_id;settings.board_name=data.board_name.strip();settings.last_sync_at=datetime.now(timezone.utc).isoformat();s.add(settings);s.commit()
+    add_runrun_log('import','success',f'{created_tasks} tarefas adicionadas e {updated_tasks} atualizadas no quadro {data.board_name or data.board_id}.')
+    return {'ok':True,'projects_created':created_projects,'tasks_created':created_tasks,'tasks_updated':updated_tasks,'backup_created':backup_created}
+
+@app.delete('/api/integrations/runrunit/import/{board_id}')
+def remove_runrun_import(board_id: int):
+    attachment_paths=[]
+    with Session(engine) as s:
+        tasks=list(s.scalars(select(Task).where((Task.runrunit_board_id==board_id)&(Task.runrunit_origin=='imported'))))
+        task_ids=[task.id for task in tasks]
+        if task_ids and s.scalar(select(ActiveTimer).where(ActiveTimer.task_id.in_(task_ids))):
+            raise HTTPException(409,'Pare ou descarte os cronômetros das tarefas importadas antes de removê-las.')
+        project_ids={task.project_id for task in tasks}
+        for task in tasks:
+            for model in (ChecklistItem,TaskComment,TaskLabel):
+                for row in s.scalars(select(model).where(model.task_id==task.id)): s.delete(row)
+            for row in s.scalars(select(TaskDependency).where((TaskDependency.task_id==task.id)|(TaskDependency.depends_on_id==task.id))): s.delete(row)
+            for attachment in s.scalars(select(Attachment).where(Attachment.task_id==task.id)):
+                attachment_paths.append(attachments_dir/attachment.stored_name);s.delete(attachment)
+            s.delete(task)
+        s.flush();projects_removed=projects_kept=0
+        for project_id in project_ids:
+            project=s.get(Project,project_id)
+            if not project or project.runrunit_id is None: continue
+            remaining=list(s.scalars(select(Task).where(Task.project_id==project_id)))
+            if remaining:
+                if not any(task.runrunit_id for task in remaining): project.runrunit_id=None
+                s.add(project);projects_kept+=1
+            else: s.delete(project);projects_removed+=1
+        settings=s.get(RunrunSettings,1)
+        if settings and settings.board_id==board_id:
+            settings.board_id=None;settings.board_name='';s.add(settings)
+        s.commit()
+    for path in attachment_paths: path.unlink(missing_ok=True)
+    return {'ok':True,'tasks_removed':len(tasks),'projects_removed':projects_removed,'projects_kept':projects_kept}
+
+def send_runrun_hours(task_id: int | None = None, failed_only: bool = False):
+    client=runrun_client();sent=0;errors=[]
+    with Session(engine) as s:
+        entries=list(s.scalars(select(Entry).order_by(Entry.id)))
+        for entry in entries:
+            if task_id is not None and entry.task_id!=task_id: continue
+            task=s.get(Task,entry.task_id)
+            if not task or not task.runrunit_id or entry.runrunit_synced_at: continue
+            if failed_only and not entry.runrunit_sync_error: continue
+            attempted_at=datetime.now(timezone.utc).isoformat()
+            try:
+                response=client.add_manual_work(task.runrunit_id,max(1,round(entry.hours*3600)),entry.created_at[:10])
+                entry.runrunit_synced_at=attempted_at
+                entry.runrunit_work_period_id=response.get('id') if isinstance(response,dict) else None
+                entry.runrunit_sync_attempted_at=attempted_at;entry.runrunit_sync_error=''
+                s.add(entry);s.commit();sent+=1
+            except RunrunError as exc:
+                s.rollback()
+                failed=s.get(Entry,entry.id);failed.runrunit_sync_attempted_at=attempted_at;failed.runrunit_sync_error=str(exc)[:1000]
+                s.add(failed);s.commit();errors.append({'entry_id':entry.id,'message':str(exc)})
+        add_runrun_log('hours','success' if not errors else 'error',f'{sent} registros de horas enviados; {len(errors)} falharam.')
+        return {'ok':not errors,'sent':sent,'errors':errors}
+
+@app.post('/api/integrations/runrunit/sync-hours')
+def sync_runrun_hours(task_id: int | None = None): return send_runrun_hours(task_id)
+
+@app.post('/api/integrations/runrunit/retry-hours')
+def retry_runrun_hours(): return send_runrun_hours(failed_only=True)
+
+@app.post('/api/integrations/runrunit/tasks/{task_id}/sync-hours')
+def sync_runrun_task_hours(task_id: int): return sync_runrun_hours(task_id)
 @app.get('/api/backup')
 def export_backup():
     with Session(engine) as s:
@@ -284,6 +657,7 @@ def dependency_cycle(session, task_id:int, dependency_ids:list[int]):
     return dependency_change_creates_cycle(links,task_id,dependency_ids)
 
 def save_task(data,task_id=None):
+    status_changed=False
     with Session(engine) as s:
         project=s.get(Project,data.project_id)
         if not project or project.is_archived: raise HTTPException(404,'Projeto não encontrado')
@@ -305,7 +679,8 @@ def save_task(data,task_id=None):
             raise HTTPException(422,'A data final da recorrência deve ser igual ou posterior ao prazo.')
         create_next = bool(task_id and row.status != 'done' and data.status == 'done' and data.recurrence != 'none')
         source_checklist = list(s.scalars(select(ChecklistItem).where(ChecklistItem.task_id==task_id))) if create_next else []
-        if task_id and row.status!=data.status:
+        status_changed=bool(task_id and row.status!=data.status)
+        if status_changed:
             s.add(History(task_title=data.title,old_status=row.status,new_status=data.status,created_at=datetime.now(timezone.utc).isoformat()))
         values=data.model_dump(); values.pop('label_ids',None); values.pop('dependency_ids',None)
         values['due_date']=data.due_date.isoformat() if data.due_date else ''
@@ -334,8 +709,12 @@ def save_task(data,task_id=None):
                 s.add_all(TaskDependency(task_id=next_task.id,depends_on_id=dependency_id) for dependency_id in dependency_ids)
                 created_at=datetime.now(timezone.utc).isoformat()
                 s.add_all(ChecklistItem(task_id=next_task.id,title=item.title,is_done=False,created_at=created_at) for item in source_checklist)
-        s.commit(); s.refresh(row)
-        return {**dump(row),'label_ids':label_ids,'dependency_ids':dependency_ids}
+        s.commit(); s.refresh(row);saved_id=row.id
+        result={**dump(row),'label_ids':label_ids,'dependency_ids':dependency_ids}
+    if status_changed:
+        sync_one_runrun_status(saved_id)
+        with Session(engine) as s: result.update(dump(s.get(Task,saved_id)))
+    return result
 @app.post('/api/tasks',status_code=201)
 def create_task(data:TaskInput): return save_task(data)
 @app.put('/api/tasks/{task_id}')
@@ -482,6 +861,8 @@ def save_entry(data:EntryInput, entry_id=None):
         row.task_title=task.title
         row.hours=data.hours
         row.note=data.note
+        if data.work_date:
+            row.created_at=datetime.combine(data.work_date,datetime.min.time(),tzinfo=timezone.utc).replace(hour=12).isoformat()
         s.add(row); s.commit(); s.refresh(row)
         return dump(row)
 @app.post('/api/entries',status_code=201)
@@ -553,8 +934,10 @@ def stop_timer(task_id:int):
         elapsed=timer_elapsed_seconds(timer,now)
         minutes=max(1,int((elapsed+30)//60))
         entry=Entry(task_id=task.id,task_title=task.title,hours=minutes/60,note='Cronômetro',created_at=now.isoformat())
-        s.add(entry); s.delete(timer); s.commit(); s.refresh(entry)
-        return dump(entry)
+        s.add(entry); s.delete(timer); s.commit(); s.refresh(entry);entry_id=entry.id
+        settings=s.get(RunrunSettings,1);auto_sync=bool(settings and settings.auto_sync_hours and task.runrunit_id)
+    if auto_sync: send_runrun_hours(task_id)
+    with Session(engine) as s: return dump(s.get(Entry,entry_id))
 
 @app.delete('/api/timer/{task_id}')
 def discard_timer(task_id:int):

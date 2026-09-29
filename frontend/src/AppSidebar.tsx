@@ -1,8 +1,8 @@
-import { Archive, CalendarDays, ChevronRight, Clock3, Columns3, FileBarChart, FolderKanban, History, LayoutDashboard, ListTodo, Palette, SlidersHorizontal, Tags } from 'lucide-react';
+import { Archive, CalendarDays, ChevronRight, Clock3, Columns3, FileBarChart, FolderKanban, History, LayoutDashboard, ListTodo, Palette, Plug, SlidersHorizontal, Tags } from 'lucide-react';
 import { priorities, statuses } from './boardConfig';
 import type { BoardLabel } from './types';
 
-export const menus=[['Dashboard',LayoutDashboard],['Projetos',FolderKanban],['Quadro Kanban',Columns3],['Calendário',CalendarDays],['Tarefas',ListTodo],['Etiquetas',Tags],['Horas registradas',Clock3],['Relatórios',FileBarChart],['Histórico',History],['Arquivados',Archive]] as const;
+export const menus=[['Dashboard',LayoutDashboard],['Projetos',FolderKanban],['Quadro Kanban',Columns3],['Calendário',CalendarDays],['Tarefas',ListTodo],['Etiquetas',Tags],['Horas registradas',Clock3],['Relatórios',FileBarChart],['Histórico',History],['Arquivados',Archive],['Integrações',Plug]] as const;
 
 type Props={page:string;boardName:string;profileName:string;taskCount:number;labels:BoardLabel[];priority:string;status:string;labelFilter:string;onPage:(value:string)=>void;onCustomize:()=>void;onProfile:()=>void;onPriority:(value:string)=>void;onStatus:(value:string)=>void;onLabel:(value:string)=>void;onClear:()=>void;initials:(value:string)=>string};
 

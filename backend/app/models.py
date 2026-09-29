@@ -14,6 +14,7 @@ class Project(Base):
     name: Mapped[str]
     description: Mapped[str] = mapped_column(default='')
     is_archived: Mapped[bool] = mapped_column(default=False)
+    runrunit_id: Mapped[int | None] = mapped_column(nullable=True)
 
 
 class Task(Base):
@@ -29,6 +30,14 @@ class Task(Base):
     is_archived: Mapped[bool] = mapped_column(default=False)
     recurrence: Mapped[str] = mapped_column(default='none')
     recurrence_end: Mapped[str] = mapped_column(default='')
+    runrunit_id: Mapped[int | None] = mapped_column(nullable=True)
+    runrunit_board_id: Mapped[int | None] = mapped_column(nullable=True)
+    runrunit_task_title: Mapped[str] = mapped_column(default='')
+    runrunit_board_name: Mapped[str] = mapped_column(default='')
+    runrunit_origin: Mapped[str] = mapped_column(default='')
+    runrunit_last_synced_status: Mapped[str] = mapped_column(default='')
+    runrunit_status_error: Mapped[str] = mapped_column(default='')
+    runrunit_snapshot: Mapped[str] = mapped_column(default='')
 
 
 class ChecklistItem(Base):
@@ -87,6 +96,40 @@ class Entry(Base):
     task_title: Mapped[str]
     hours: Mapped[float]
     note: Mapped[str]
+    created_at: Mapped[str]
+    runrunit_synced_at: Mapped[str | None] = mapped_column(nullable=True)
+    runrunit_work_period_id: Mapped[int | None] = mapped_column(nullable=True)
+    runrunit_sync_attempted_at: Mapped[str | None] = mapped_column(nullable=True)
+    runrunit_sync_error: Mapped[str] = mapped_column(default='')
+
+
+class RunrunSettings(Base):
+    __tablename__ = 'runrunit_settings'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    board_id: Mapped[int | None] = mapped_column(nullable=True)
+    board_name: Mapped[str] = mapped_column(default='')
+    last_sync_at: Mapped[str | None] = mapped_column(nullable=True)
+    mapped_user_id: Mapped[str] = mapped_column(default='')
+    mapped_user_name: Mapped[str] = mapped_column(default='')
+    auto_sync_hours: Mapped[bool] = mapped_column(default=False)
+
+
+class RunrunBoardMapping(Base):
+    __tablename__ = 'runrunit_board_mappings'
+    board_id: Mapped[int] = mapped_column(primary_key=True)
+    enabled: Mapped[bool] = mapped_column(default=False)
+    todo_stage_id: Mapped[int | None] = mapped_column(nullable=True)
+    doing_stage_id: Mapped[int | None] = mapped_column(nullable=True)
+    waiting_stage_id: Mapped[int | None] = mapped_column(nullable=True)
+    done_stage_id: Mapped[int | None] = mapped_column(nullable=True)
+
+
+class RunrunIntegrationLog(Base):
+    __tablename__ = 'runrunit_integration_logs'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operation: Mapped[str]
+    status: Mapped[str]
+    message: Mapped[str]
     created_at: Mapped[str]
 
 

@@ -2,13 +2,14 @@ import type { CSSProperties } from 'react';
 import { CalendarDays, CircleCheck, Clock3, LockKeyhole, MessageSquare, MoreHorizontal, Pause, Play, PlayCircle, Repeat2, Square } from 'lucide-react';
 import { clockTime, formatDate, initials, priorities, recurrences } from './boardConfig';
 import type { ActiveTimer, BoardLabel, ChecklistItem, Task } from './types';
+import RunrunBadge from './RunrunBadge';
 
 type Props={task:Task;projectName:string;labels:BoardLabel[];checklist:ChecklistItem[];commentCount:number;pending:Task[];timer?:ActiveTimer;timerSeconds:number;busy:boolean;onEdit:()=>void;onHours:()=>void;onStart:()=>void;onPause:()=>void;onResume:()=>void;onStop:()=>void};
 
 export default function KanbanTaskCard({task,projectName,labels,checklist,commentCount,pending,timer,timerSeconds,busy,onEdit,onHours,onStart,onPause,onResume,onStop}:Props){
  const done=checklist.filter(item=>item.is_done).length;
  return <article className="task-card" draggable={!busy} onDragStart={event=>event.dataTransfer.setData('text/plain',String(task.id))}>
-  <div className="card-project">{projectName}<button className="icon-button" aria-label={'Editar '+task.title} onClick={onEdit}><MoreHorizontal size={17}/></button></div>
+  <div className="card-project"><span>{projectName}</span><span className="card-project-actions"><RunrunBadge task={task}/><button className="icon-button" aria-label={'Editar '+task.title} onClick={onEdit}><MoreHorizontal size={17}/></button></span></div>
   <button className="text-button card-title" onClick={onEdit}>{task.title}</button>
   <span className={'badge '+task.priority}>{priorities[task.priority]}</span>
   {task.recurrence!=='none'&&<span className="recurrence-badge" title="A próxima tarefa será criada ao concluir esta"><Repeat2 size={11}/>{recurrences[task.recurrence]}</span>}

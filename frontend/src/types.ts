@@ -1,6 +1,6 @@
-export type Project={id:number;name:string;description:string;is_archived:boolean};
-export type Task={id:number;title:string;project_id:number;status:string;priority:string;assignee:string;due_date:string;estimated_hours:number;is_archived:boolean;recurrence:'none'|'daily'|'weekly'|'monthly';recurrence_end:string;label_ids:number[];dependency_ids:number[]};
-export type Entry={id:number;task_id:number;task_title:string;hours:number;note:string;created_at:string};
+export type Project={id:number;name:string;description:string;is_archived:boolean;runrunit_id:number|null};
+export type Task={id:number;title:string;project_id:number;status:string;priority:string;assignee:string;due_date:string;estimated_hours:number;is_archived:boolean;recurrence:'none'|'daily'|'weekly'|'monthly';recurrence_end:string;runrunit_id:number|null;runrunit_board_id:number|null;runrunit_task_title:string;runrunit_board_name:string;runrunit_origin:string;runrunit_last_synced_status:string;runrunit_status_error:string;label_ids:number[];dependency_ids:number[]};
+export type Entry={id:number;task_id:number;task_title:string;hours:number;note:string;created_at:string;runrunit_synced_at:string|null;runrunit_work_period_id:number|null;runrunit_sync_attempted_at:string|null;runrunit_sync_error:string};
 export type Movement={id:number;task_title:string;old_status:string;new_status:string;created_at:string};
 export type ActiveTimer={task_id:number;started_at:string;elapsed_seconds:number;paused_at:string|null};
 export type ChecklistItem={id:number;task_id:number;title:string;is_done:boolean;created_at:string};

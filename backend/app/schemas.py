@@ -34,6 +34,7 @@ class EntryInput(BaseModel):
     task_id: int
     hours: float = Field(gt=0, le=24)
     note: str = Field(default='', max_length=1000)
+    work_date: date | None = None
 class ChecklistInput(BaseModel): title: str = Field(min_length=1, max_length=200, pattern=r'.*\S.*')
 class ChecklistUpdate(ChecklistInput): is_done: bool
 class CommentInput(BaseModel):
@@ -45,11 +46,39 @@ class LabelInput(BaseModel):
 class AttachmentInput(BaseModel):
     original_name: str = Field(min_length=1, max_length=255, pattern=r'.*\S.*')
     content_base64: str
+class RunrunCredentialsInput(BaseModel):
+    app_key: str = Field(min_length=1, max_length=500, pattern=r'.*\S.*')
+    user_token: str = Field(min_length=1, max_length=500, pattern=r'.*\S.*')
+class RunrunImportInput(BaseModel):
+    board_id: int = Field(gt=0)
+    board_name: str = Field(default='', max_length=200)
+    task_ids: list[int] | None = None
+    update_fields: list[Literal['title','status','due_date','estimated_hours','assignee','priority']] = ['title','status','due_date','estimated_hours','assignee','priority']
+class RunrunPreviewInput(BaseModel):
+    board_id: int = Field(gt=0)
+    include_completed: bool = False
+    incremental: bool = False
+class RunrunLinkInput(BaseModel):
+    task_id: int = Field(gt=0)
+    board_id: int = Field(gt=0)
+    board_name: str = Field(default='', max_length=200)
+    runrunit_task_id: int = Field(gt=0)
+class RunrunStatusMappingInput(BaseModel):
+    enabled: bool = False
+    todo_stage_id: int | None = Field(default=None,gt=0)
+    doing_stage_id: int | None = Field(default=None,gt=0)
+    waiting_stage_id: int | None = Field(default=None,gt=0)
+    done_stage_id: int | None = Field(default=None,gt=0)
+class RunrunUserMappingInput(BaseModel):
+    user_id: str = Field(default='',max_length=200)
+    user_name: str = Field(default='',max_length=200)
+class RunrunAutomationInput(BaseModel):
+    auto_sync_hours: bool = False
 
 class BackupProject(BaseModel):
-    id: int = Field(gt=0); name: str = Field(min_length=1,max_length=120); description: str = Field(default='',max_length=2000); is_archived: bool = False
+    id: int = Field(gt=0); name: str = Field(min_length=1,max_length=120); description: str = Field(default='',max_length=2000); is_archived: bool = False; runrunit_id: int | None = None
 class BackupTask(BaseModel):
-    id: int = Field(gt=0); title: str = Field(min_length=1,max_length=200); project_id: int = Field(gt=0); status: Literal['todo','doing','waiting','done']; priority: Literal['critical','high','medium','low']; assignee: str = Field(min_length=1,max_length=80); due_date: str = Field(default='',pattern=r'^$|^\d{4}-\d{2}-\d{2}$'); estimated_hours: float = Field(ge=0,le=100000); is_archived: bool = False; recurrence: Literal['none','daily','weekly','monthly'] = 'none'; recurrence_end: str = Field(default='',pattern=r'^$|^\d{4}-\d{2}-\d{2}$')
+    id: int = Field(gt=0); title: str = Field(min_length=1,max_length=200); project_id: int = Field(gt=0); status: Literal['todo','doing','waiting','done']; priority: Literal['critical','high','medium','low']; assignee: str = Field(min_length=1,max_length=80); due_date: str = Field(default='',pattern=r'^$|^\d{4}-\d{2}-\d{2}$'); estimated_hours: float = Field(ge=0,le=100000); is_archived: bool = False; recurrence: Literal['none','daily','weekly','monthly'] = 'none'; recurrence_end: str = Field(default='',pattern=r'^$|^\d{4}-\d{2}-\d{2}$'); runrunit_id: int | None = None; runrunit_board_id: int | None = None; runrunit_task_title: str = ''; runrunit_board_name: str = ''; runrunit_origin: str = ''; runrunit_last_synced_status: str = ''; runrunit_status_error: str = ''; runrunit_snapshot: str = ''
 class BackupChecklistItem(BaseModel):
     id: int = Field(gt=0); task_id: int = Field(gt=0); title: str = Field(min_length=1,max_length=200); is_done: bool = False; created_at: str
 class BackupComment(BaseModel):
@@ -61,7 +90,7 @@ class BackupTaskDependency(BaseModel): id: int = Field(gt=0); task_id: int = Fie
 class BackupAttachment(BaseModel):
     id: int = Field(gt=0); task_id: int = Field(gt=0); original_name: str = Field(min_length=1,max_length=255); stored_name: str = Field(min_length=1,max_length=255); size: int = Field(ge=0,le=20*1024*1024); created_at: str; content_base64: str = ''
 class BackupEntry(BaseModel):
-    id: int = Field(gt=0); task_id: int = Field(gt=0); task_title: str = Field(min_length=1,max_length=200); hours: float = Field(gt=0,le=24); note: str = Field(default='',max_length=1000); created_at: str
+    id: int = Field(gt=0); task_id: int = Field(gt=0); task_title: str = Field(min_length=1,max_length=200); hours: float = Field(gt=0,le=24); note: str = Field(default='',max_length=1000); created_at: str; runrunit_synced_at: str | None = None; runrunit_work_period_id: int | None = None; runrunit_sync_attempted_at: str | None = None; runrunit_sync_error: str = ''
 class BackupHistory(BaseModel):
     id: int = Field(gt=0); task_title: str = Field(min_length=1,max_length=200); old_status: Literal['todo','doing','waiting','done']; new_status: Literal['todo','doing','waiting','done']; created_at: str
 class BackupTimer(BaseModel):
